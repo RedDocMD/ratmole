@@ -1,3 +1,4 @@
+pub mod cargo;
 pub mod error;
 pub mod explore;
 pub mod structs;
