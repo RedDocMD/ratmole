@@ -1,4 +1,7 @@
-#[derive(Clone)]
+use colored::*;
+use std::fmt::{self, Display, Formatter};
+
+#[derive(Debug, Clone)]
 pub struct Struct {
     name: String,
     vis: Visibility,
@@ -6,14 +9,61 @@ pub struct Struct {
     module: Path,
 }
 
-pub type Path = Vec<String>;
+impl Display for Struct {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}{} {}::{}",
+            self.vis.to_string().magenta(),
+            "struct".green(),
+            self.module,
+            self.name.yellow(),
+        )?;
+        if !self.params.is_empty() {
+            write!(f, "<{}>", self.params.join(","))?;
+        }
+        Ok(())
+    }
+}
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
+pub struct Path(Vec<String>);
+
+impl Path {
+    fn push(&mut self, comp: String) {
+        self.0.push(comp);
+    }
+}
+
+impl From<Vec<String>> for Path {
+    fn from(comps: Vec<String>) -> Self {
+        Self(comps)
+    }
+}
+
+impl Display for Path {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0.join("::"))
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum Visibility {
     Public,
     Crate,
     Restricted(Path),
     Private,
+}
+
+impl Display for Visibility {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Visibility::Public => write!(f, "pub "),
+            Visibility::Crate => write!(f, "pub(crate) "),
+            Visibility::Restricted(path) => write!(f, "pub(in {}) ", path),
+            Visibility::Private => Ok(()),
+        }
+    }
 }
 
 impl Struct {
@@ -46,7 +96,7 @@ impl Visibility {
                     .iter()
                     .map(|seg| seg.ident.to_string())
                     .collect();
-                Self::Restricted(path)
+                Self::Restricted(Path(path))
             }
             syn::Visibility::Inherited => Self::Private,
         }

@@ -6,5 +6,13 @@ quick_error! {
             source(err)
             display("IO error: {}", err)
         }
+        Utf8(msg: &'static str) {
+            display("{}", msg)
+        }
+        Parse(err: syn::Error) {
+            from()
+            source(err)
+            display("Parse error: {}", err)
+        }
     }
 }
