@@ -18,6 +18,9 @@ fn main() -> Result<(), Error> {
         .init();
     let args: Vec<String> = env::args().collect();
     let crate_root = &args[1];
-    crate_dependencies(crate_root)?;
+    let deps = crate_dependencies(crate_root)?;
+    for dep in &deps {
+        println!("{}", dep);
+    }
     Ok(())
 }

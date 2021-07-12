@@ -14,5 +14,10 @@ quick_error! {
             source(err)
             display("Parse error: {}", err)
         }
+        Version(err: semver::Error) {
+            from()
+            source(err)
+            display("Failed to parse version requirement: {}", err)
+        }
     }
 }
