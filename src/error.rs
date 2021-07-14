@@ -28,5 +28,8 @@ quick_error! {
             from()
             display("{}", err)
         }
+        PackageNotFound(name: String) {
+            display("Package not found: {}", name)
+        }
     }
 }
