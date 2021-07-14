@@ -19,5 +19,14 @@ quick_error! {
             source(err)
             display("Failed to parse version requirement: {}", err)
         }
+        TomlDeserialize(err: toml::de::Error) {
+            from()
+            source(err)
+            display("Failed to parse Cargo.toml: {}", err)
+        }
+        Anyhow(err: anyhow::Error) {
+            from()
+            display("{}", err)
+        }
     }
 }

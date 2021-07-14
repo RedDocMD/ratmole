@@ -1,5 +1,5 @@
 use colored::*;
-use ratmole::{cargo::crate_dependencies, error::Error};
+use ratmole::{cargo::parse_cargo, error::Error};
 use std::{env, io::Write};
 
 fn main() -> Result<(), Error> {
@@ -18,9 +18,6 @@ fn main() -> Result<(), Error> {
         .init();
     let args: Vec<String> = env::args().collect();
     let crate_root = &args[1];
-    let deps = crate_dependencies(crate_root)?;
-    for dep in &deps {
-        println!("{}", dep);
-    }
+    parse_cargo(crate_root)?;
     Ok(())
 }
