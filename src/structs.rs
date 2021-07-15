@@ -27,23 +27,61 @@ impl Display for Struct {
 }
 
 #[derive(Debug, Clone)]
-pub struct Path(Vec<String>);
+pub struct Path(Vec<PathComponent>);
+
+#[derive(Debug, Clone)]
+pub enum PathComponent {
+    Global,       // ::
+    SmallSelf,    // self
+    BigSelf,      // Self
+    Super,        // super
+    Crate,        // crate
+    Name(String), // everything else
+}
+
+impl Display for PathComponent {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            PathComponent::Global => write!(f, "{}", ""),
+            PathComponent::SmallSelf => write!(f, "{}", "self"),
+            PathComponent::BigSelf => write!(f, "{}", "Self"),
+            PathComponent::Super => write!(f, "{}", "Super"),
+            PathComponent::Crate => write!(f, "{}", "crate"),
+            PathComponent::Name(name) => write!(f, "{}", name),
+        }
+    }
+}
+
+impl From<String> for PathComponent {
+    fn from(comp: String) -> Self {
+        use PathComponent::*;
+        match comp.as_str() {
+            "" => Global,
+            "self" => SmallSelf,
+            "Self" => BigSelf,
+            "super" => Super,
+            "crate" => Crate,
+            _ => Name(comp),
+        }
+    }
+}
 
 impl Path {
-    fn push(&mut self, comp: String) {
-        self.0.push(comp);
+    fn push_name(&mut self, comp: String) {
+        self.0.push(PathComponent::Name(comp));
     }
 }
 
 impl From<Vec<String>> for Path {
     fn from(comps: Vec<String>) -> Self {
-        Self(comps)
+        Self(comps.into_iter().map(PathComponent::from).collect())
     }
 }
 
 impl Display for Path {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0.join("::"))
+        let comps: Vec<String> = self.0.iter().map(PathComponent::to_string).collect();
+        write!(f, "{}", comps.join("::"))
     }
 }
 
@@ -90,11 +128,11 @@ impl Visibility {
             syn::Visibility::Public(_) => Self::Public,
             syn::Visibility::Crate(_) => Self::Crate,
             syn::Visibility::Restricted(item) => {
-                let path: Vec<String> = item
+                let path: Vec<PathComponent> = item
                     .path
                     .segments
                     .iter()
-                    .map(|seg| seg.ident.to_string())
+                    .map(|seg| PathComponent::from(seg.ident.to_string()))
                     .collect();
                 Self::Restricted(Path(path))
             }
@@ -111,7 +149,7 @@ pub fn structs_from_items(items: &[syn::Item], module: Path) -> Vec<Struct> {
             Item::Struct(item) => structs.push(Struct::from_syn(item, module.clone())),
             Item::Mod(item) => {
                 let mut new_module = module.clone();
-                new_module.push(item.ident.to_string());
+                new_module.push_name(item.ident.to_string());
                 if let Some((_, content)) = &item.content {
                     structs.append(&mut structs_from_items(content, new_module.clone()));
                 }
