@@ -16,10 +16,10 @@ use std::{
 pub fn parse_cargo<T: AsRef<path::Path>>(
     crate_root: T,
     config: &Config,
-) -> Result<Manifest, Error> {
+) -> Result<(Manifest, PathBuf), Error> {
     let mut toml_path = PathBuf::from(crate_root.as_ref());
     toml_path.push("Cargo.toml");
-    let mut toml_file = File::open(toml_path)?;
+    let mut toml_file = File::open(&toml_path)?;
     let mut toml_content = String::new();
     toml_file.read_to_string(&mut toml_content)?;
 
@@ -29,7 +29,7 @@ pub fn parse_cargo<T: AsRef<path::Path>>(
     let (manifest, paths) =
         TomlManifest::to_real_manifest(&toml_manifest, cargo_source, crate_root.as_ref(), &config)?;
     debug!("{}: {:?}", "Paths".red(), paths);
-    Ok(manifest)
+    Ok((manifest, toml_path))
 }
 
 pub fn download_dependency<'a, T>(
