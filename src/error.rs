@@ -31,5 +31,10 @@ quick_error! {
         PackageNotFound(name: String) {
             display("Package not found: {}", name)
         }
+        InvalidCrate(msg: String) {
+            display("{}", msg)
+        }
     }
 }
+
+pub type Result<T> = std::result::Result<T, Error>;

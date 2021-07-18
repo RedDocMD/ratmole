@@ -42,11 +42,11 @@ pub enum PathComponent {
 impl Display for PathComponent {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            PathComponent::Global => write!(f, "{}", ""),
-            PathComponent::SmallSelf => write!(f, "{}", "self"),
-            PathComponent::BigSelf => write!(f, "{}", "Self"),
-            PathComponent::Super => write!(f, "{}", "Super"),
-            PathComponent::Crate => write!(f, "{}", "crate"),
+            PathComponent::Global => write!(f, ""),
+            PathComponent::SmallSelf => write!(f, "self"),
+            PathComponent::BigSelf => write!(f, "Self"),
+            PathComponent::Super => write!(f, "super"),
+            PathComponent::Crate => write!(f, "crate"),
             PathComponent::Name(name) => write!(f, "{}", name),
         }
     }
@@ -67,7 +67,7 @@ impl From<String> for PathComponent {
 }
 
 impl Path {
-    fn push_name(&mut self, comp: String) {
+    pub fn push_name(&mut self, comp: String) {
         self.0.push(PathComponent::Name(comp));
     }
 }

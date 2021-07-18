@@ -44,9 +44,7 @@ where
     let latest = opts
         .iter()
         .max_by_key(|x| x.version())
-        .ok_or(Error::PackageNotFound(String::from(
-            dep.name_in_toml().as_str(),
-        )))?;
+        .ok_or_else(|| Error::PackageNotFound(String::from(dep.name_in_toml().as_str())))?;
     let pkg = Box::new(src).download_now(latest.package_id(), config)?;
     Ok(pkg)
 }

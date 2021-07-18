@@ -30,7 +30,7 @@ fn main() -> Result<(), Error> {
     let mut crates_io = config_map.load(crates_io_id, &Default::default())?;
     crates_io.update()?;
 
-    let manifest = parse_cargo(crate_root, &config)?;
+    let (manifest, _) = parse_cargo(crate_root, &config)?;
     let mut pkgs = Vec::new();
     for dep in manifest.dependencies() {
         println!(
