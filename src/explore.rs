@@ -170,8 +170,12 @@ fn structs_in_target(targ: &Target) -> Result<Vec<Struct>> {
     let crate_name = targ.crate_name();
     let mut structs = Vec::new();
     structs.append(
-        &mut structs_from_file(&src_path, Path::from(vec![crate_name.clone()]))?
-            .unwrap_or_default(),
+        &mut structs_from_file(&src_path, Path::from(vec![crate_name.clone()]))?.unwrap_or_else(
+            || {
+                warn!("failed to parse {}", src_path.as_os_str().to_str().unwrap());
+                vec![]
+            },
+        ),
     );
     structs.append(&mut structs_from_submodules(&Module {
         cat: ModuleCategory::Root,
@@ -210,11 +214,19 @@ fn structs_from_submodules(module: &Module<'_>) -> Result<Vec<Struct>> {
     let mut structs = Vec::new();
     for sub_mod in &sub_mods {
         structs.append(
-            &mut structs_from_file(&sub_mod.path, sub_mod.rust_path.clone())?.unwrap_or_default(),
+            &mut structs_from_file(&sub_mod.path, sub_mod.rust_path.clone())?.unwrap_or_else(
+                || {
+                    warn!(
+                        "failed to parse {}",
+                        sub_mod.path.as_os_str().to_str().unwrap()
+                    );
+                    vec![]
+                },
+            ),
         );
         structs.append(&mut structs_from_submodules(sub_mod)?);
     }
-    Ok(vec![])
+    Ok(structs)
 }
 
 #[derive(Debug)]
@@ -259,7 +271,7 @@ impl Module<'_> {
             mod_path.push(self.name);
         }
         mod_path.push(name);
-        mod_path.push(format!("{}.rs", name));
+        mod_path.push("mod.rs");
         if mod_path.exists() && mod_path.is_file() {
             return Some(Module {
                 path: mod_path,
@@ -279,14 +291,14 @@ struct ASTModule {
 }
 
 struct PathAttr {
-    eq: Token![=],
+    _eq: Token![=],
     path: LitStr,
 }
 
 impl Parse for PathAttr {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         Ok(PathAttr {
-            eq: input.parse()?,
+            _eq: input.parse()?,
             path: input.parse()?,
         })
     }
