@@ -9,78 +9,8 @@ use cargo::{
     Config,
 };
 use log::{debug, warn};
-use regex::Regex;
-use std::{
-    fs::{self, File},
-    io::Read,
-    path::PathBuf,
-};
+use std::{fs::File, io::Read, path::PathBuf};
 use syn::{parse::Parse, Item, LitStr, Token};
-
-pub fn structs_in_crate<T: AsRef<std::path::Path>>(lib_path: T) -> Result<Vec<Struct>> {
-    let mut src_path = PathBuf::from(lib_path.as_ref());
-    src_path.pop();
-    let mut structs = Vec::new();
-    for entry in fs::read_dir(src_path)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_file() {
-            let name = path
-                .file_name()
-                .unwrap()
-                .to_str()
-                .ok_or(Error::Utf8("failed to convert OsStr to str"))?;
-            if is_rust_filename(name) {
-                let mod_name = &name[..name.len() - 3];
-                structs.append(
-                    &mut structs_from_file(&path, Path::from(vec![String::from(mod_name)]))?
-                        .unwrap_or_default(),
-                );
-            }
-        }
-        if path.is_dir() {
-            let dir_name = path
-                .file_name()
-                .unwrap()
-                .to_str()
-                .ok_or(Error::Utf8("failed to convert OsStr to str"))?;
-            for entry in fs::read_dir(&path)? {
-                let entry = entry?;
-                let path = entry.path();
-                if path.is_file() {
-                    let name = path
-                        .file_name()
-                        .unwrap()
-                        .to_str()
-                        .ok_or(Error::Utf8("failed to convert OsStr to str"))?;
-                    if name == "mod.rs" {
-                        structs.append(
-                            &mut structs_from_file(path, Path::from(vec![String::from(dir_name)]))?
-                                .unwrap_or_default(),
-                        );
-                    } else if is_rust_filename(name) {
-                        let mod_name = &name[..name.len() - 3];
-                        structs.append(
-                            &mut structs_from_file(
-                                &path,
-                                Path::from(vec![String::from(dir_name), String::from(mod_name)]),
-                            )?
-                            .unwrap_or_default(),
-                        );
-                    }
-                }
-            }
-        }
-    }
-    Ok(structs)
-}
-
-fn is_rust_filename(name: &str) -> bool {
-    lazy_static! {
-        static ref RS_REG: Regex = Regex::new(r"^[^.]+\.rs$").unwrap();
-    }
-    RS_REG.is_match(name)
-}
 
 fn structs_from_file<T: AsRef<std::path::Path>>(
     file_path: T,
