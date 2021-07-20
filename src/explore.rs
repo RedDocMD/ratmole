@@ -122,14 +122,22 @@ fn structs_from_submodules(module: &Module<'_>) -> Result<Vec<Struct>> {
         if let Some(path) = &ast_mod.path {
             let mut new_mod_path = module.rust_path.clone();
             new_mod_path.push_name(ast_mod.name.clone());
+
             let mut new_path = module.path.clone();
             new_path.pop();
             new_path.push(path);
+
+            let cat = if new_path.file_name().unwrap() == "mod.rs" {
+                ModuleCategory::Mod
+            } else {
+                ModuleCategory::Direct
+            };
+
             sub_mods.push(Module {
                 path: new_path,
                 rust_path: new_mod_path,
                 name: &ast_mod.name,
-                cat: ModuleCategory::Direct,
+                cat,
             });
         } else {
             sub_mods.push(module.submodule(&ast_mod.name).ok_or_else(|| {
