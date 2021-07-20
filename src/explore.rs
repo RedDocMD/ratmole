@@ -105,23 +105,15 @@ pub fn structs_in_crate_and_deps<T: AsRef<std::path::Path>>(
     let config = Config::default()?;
     let (manifest, manifest_path) = parse_cargo(&main_crate_root, &config)?;
     let main_pkg = Package::new(manifest, &manifest_path);
+
     let mut structs = Vec::new();
     debug!("Exploring {}", main_pkg.name());
-    for targ in main_pkg.targets() {
-        if let TargetSourcePath::Path(path) = targ.src_path() {
-            structs.append(&mut structs_in_crate(path)?);
-        }
-    }
-    structs.append(&mut structs_in_crate(&main_crate_root)?);
+    structs.append(&mut structs_in_main_crate(&main_pkg)?);
+
     let pkgs = get_dependencies(&main_crate_root)?;
     for pkg in &pkgs {
         debug!("Exploring {}", pkg.name());
-        if let Some(lib) = pkg.library() {
-            if let TargetSourcePath::Path(path) = lib.src_path() {
-                debug!("Lib root: {}", path.as_os_str().to_str().unwrap());
-                structs.append(&mut structs_in_crate(path)?);
-            }
-        }
+        structs.append(&mut structs_in_dependency(pkg)?);
     }
     Ok(structs)
 }
@@ -151,15 +143,19 @@ fn get_dependencies<T: AsRef<std::path::Path>>(main_crate_root: T) -> Result<Vec
     Ok(pkgs)
 }
 
-pub fn structs_in_main_crate<T: AsRef<std::path::Path>>(crate_path: T) -> Result<Vec<Struct>> {
-    let config = Config::default()?;
-    let (manifest, manifest_path) = parse_cargo(&crate_path, &config)?;
-    let pkg = Package::new(manifest, &manifest_path);
+pub fn structs_in_main_crate(pkg: &Package) -> Result<Vec<Struct>> {
     let mut structs = Vec::new();
     for target in pkg.targets() {
         structs.append(&mut structs_in_target(target)?);
     }
     Ok(structs)
+}
+
+pub fn structs_in_dependency(pkg: &Package) -> Result<Vec<Struct>> {
+    match pkg.library() {
+        Some(lib) => structs_in_target(lib),
+        None => Ok(Vec::new()),
+    }
 }
 
 fn structs_in_target(targ: &Target) -> Result<Vec<Struct>> {
@@ -196,8 +192,11 @@ fn structs_from_submodules(module: &Module<'_>) -> Result<Vec<Struct>> {
         if let Some(path) = &ast_mod.path {
             let mut new_mod_path = module.rust_path.clone();
             new_mod_path.push_name(ast_mod.name.clone());
+            let mut new_path = module.path.clone();
+            new_path.pop();
+            new_path.push(path);
             sub_mods.push(Module {
-                path: path.clone(),
+                path: new_path,
                 rust_path: new_mod_path,
                 name: &ast_mod.name,
                 cat: ModuleCategory::Direct,
