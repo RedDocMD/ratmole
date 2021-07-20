@@ -10,7 +10,7 @@ use cargo::{
 };
 use log::{debug, warn};
 use std::{fs::File, io::Read, path::PathBuf};
-use syn::{parse::Parse, Item, LitStr, Token};
+use syn::{parenthesized, parse::Parse, token, Item, LitStr, Token};
 
 fn structs_from_file<T: AsRef<std::path::Path>>(
     file_path: T,
@@ -241,6 +241,29 @@ impl Parse for PathAttr {
     }
 }
 
+struct CfgAttrWithPath {
+    _paren: token::Paren,
+    _cond: syn::Ident,
+    _comma: Token![,],
+    _path_word: syn::Ident,
+    _eq: Token![=],
+    path: LitStr,
+}
+
+impl Parse for CfgAttrWithPath {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let content;
+        Ok(CfgAttrWithPath {
+            _paren: parenthesized!(content in input),
+            _cond: content.parse()?,
+            _comma: content.parse()?,
+            _path_word: content.parse()?,
+            _eq: content.parse()?,
+            path: content.parse()?,
+        })
+    }
+}
+
 fn empty_modules_from_file<T: AsRef<std::path::Path>>(path: T) -> Result<Option<Vec<ASTModule>>> {
     let mut file = File::open(path.as_ref())?;
     let mut content = String::new();
@@ -252,16 +275,22 @@ fn empty_modules_from_file<T: AsRef<std::path::Path>>(path: T) -> Result<Option<
                 if let Item::Mod(module) = item {
                     if module.content.is_none() {
                         let name = module.ident.to_string();
-                        let attr_name = "path";
                         let mut mod_path = None;
                         for attr in &module.attrs {
                             let seg = &attr.path.segments;
                             if seg.iter().count() == 1 {
                                 let path = &seg.iter().next().unwrap().ident;
-                                if path == attr_name {
+                                if path == "path" {
                                     let path_attr: PathAttr = syn::parse2(attr.tokens.clone())?;
                                     mod_path = Some(PathBuf::from(path_attr.path.value()));
                                     break;
+                                } else if path == "cfg_attr" {
+                                    let cfg_attr: std::result::Result<CfgAttrWithPath, syn::Error> =
+                                        syn::parse2(attr.tokens.clone());
+                                    if let Ok(cfg_attr) = cfg_attr {
+                                        mod_path = Some(PathBuf::from(cfg_attr.path.value()));
+                                        break;
+                                    }
                                 }
                             }
                         }
