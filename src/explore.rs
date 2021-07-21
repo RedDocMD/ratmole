@@ -4,11 +4,12 @@ use crate::{
     structs::{structs_from_items, Path, Struct},
 };
 use cargo::{
-    core::{manifest::TargetSourcePath, Package, SourceId, Target},
+    core::{manifest::TargetSourcePath, Package, SourceId, Target, TargetKind},
     sources::SourceConfigMap,
     Config,
 };
 use log::{debug, warn};
+use rayon::prelude::*;
 use std::{fs::File, io::Read, path::PathBuf};
 use syn::{parenthesized, parse::Parse, token, Item, LitStr, Token};
 
@@ -29,18 +30,80 @@ fn structs_from_file<T: AsRef<std::path::Path>>(
     }
 }
 
+struct SimplePackage {
+    targets: Vec<SimpleTarget>,
+    name: String,
+}
+
+impl SimplePackage {
+    fn from_cargo(pkg: Package) -> Self {
+        let targets: Vec<SimpleTarget> = pkg
+            .targets()
+            .into_iter()
+            .map(SimpleTarget::from_cargo)
+            .collect();
+        Self {
+            targets,
+            name: String::from(pkg.name().as_str()),
+        }
+    }
+
+    fn targets(&self) -> &[SimpleTarget] {
+        self.targets.as_slice()
+    }
+
+    fn library(&self) -> Option<&SimpleTarget> {
+        self.targets.iter().find(|targ| {
+            if let TargetKind::Lib(_) = targ.kind {
+                true
+            } else {
+                false
+            }
+        })
+    }
+
+    fn name(&self) -> &String {
+        &self.name
+    }
+}
+
+struct SimpleTarget {
+    crate_name: String,
+    kind: TargetKind,
+    src_path: TargetSourcePath,
+}
+
+impl SimpleTarget {
+    fn from_cargo(targ: &Target) -> Self {
+        Self {
+            crate_name: targ.crate_name(),
+            kind: targ.kind().clone(),
+            src_path: targ.src_path().clone(),
+        }
+    }
+
+    fn crate_name(&self) -> &String {
+        &self.crate_name
+    }
+
+    fn src_path(&self) -> &TargetSourcePath {
+        &self.src_path
+    }
+}
+
 pub fn structs_in_crate_and_deps<T: AsRef<std::path::Path>>(
     main_crate_root: T,
 ) -> Result<Vec<Struct>> {
     let config = Config::default()?;
     let (manifest, manifest_path) = parse_cargo(&main_crate_root, &config)?;
-    let main_pkg = Package::new(manifest, &manifest_path);
+    let main_pkg = SimplePackage::from_cargo(Package::new(manifest, &manifest_path));
 
     let mut structs = Vec::new();
     debug!("Exploring {}", main_pkg.name());
     structs.append(&mut structs_in_main_crate(&main_pkg)?);
 
     let pkgs = get_dependencies(&main_crate_root)?;
+    let pkgs: Vec<SimplePackage> = pkgs.into_iter().map(SimplePackage::from_cargo).collect();
     for pkg in &pkgs {
         debug!("Exploring {}", pkg.name());
         structs.append(&mut structs_in_dependency(pkg)?);
@@ -73,7 +136,7 @@ fn get_dependencies<T: AsRef<std::path::Path>>(main_crate_root: T) -> Result<Vec
     Ok(pkgs)
 }
 
-pub fn structs_in_main_crate(pkg: &Package) -> Result<Vec<Struct>> {
+fn structs_in_main_crate(pkg: &SimplePackage) -> Result<Vec<Struct>> {
     let mut structs = Vec::new();
     for target in pkg.targets() {
         structs.append(&mut structs_in_target(target)?);
@@ -81,14 +144,14 @@ pub fn structs_in_main_crate(pkg: &Package) -> Result<Vec<Struct>> {
     Ok(structs)
 }
 
-pub fn structs_in_dependency(pkg: &Package) -> Result<Vec<Struct>> {
+fn structs_in_dependency(pkg: &SimplePackage) -> Result<Vec<Struct>> {
     match pkg.library() {
         Some(lib) => structs_in_target(lib),
         None => Ok(Vec::new()),
     }
 }
 
-fn structs_in_target(targ: &Target) -> Result<Vec<Struct>> {
+fn structs_in_target(targ: &SimpleTarget) -> Result<Vec<Struct>> {
     let src_path = match targ.src_path() {
         TargetSourcePath::Path(path) => path,
         TargetSourcePath::Metabuild => return Ok(vec![]),
