@@ -23,5 +23,6 @@ fn main() -> Result<(), Error> {
     for st in &structs {
         println!("{}", st);
     }
+    println!("{} structs found!", structs.len());
     Ok(())
 }
