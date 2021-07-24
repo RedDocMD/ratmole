@@ -4,13 +4,19 @@ use crate::{
     structs::{structs_from_items, Path, Struct},
 };
 use cargo::{
-    core::{manifest::TargetSourcePath, Package, SourceId, Target, TargetKind},
-    sources::SourceConfigMap,
+    core::{manifest::TargetSourcePath, Package, Source, SourceId, Target, TargetKind},
+    sources::{GitSource, PathSource, SourceConfigMap},
     Config,
 };
 use log::{debug, warn};
 use rayon::prelude::*;
-use std::{fs::File, io::Read, path::PathBuf, sync::Mutex};
+use std::{
+    fmt::{self, Display, Formatter},
+    fs::File,
+    io::Read,
+    path::PathBuf,
+    sync::Mutex,
+};
 use syn::{parenthesized, parse::Parse, token, Item, LitStr, Token};
 
 fn structs_from_file<T: AsRef<std::path::Path>>(
@@ -128,11 +134,30 @@ fn download_dependencies(pkg: &Package, config: &Config) -> Result<Vec<Package>>
     let mut dep_pkgs = Vec::new();
     for dep in pkg.dependencies() {
         debug!("Downloading {} ...", dep.name_in_toml());
-        if dep.source_id() == crates_io_id {
+        let dep_src_id = dep.source_id();
+        if dep_src_id == crates_io_id {
+            debug!("from crates");
             dep_pkgs.push(download_dependency(dep, &mut crates_io, &config)?);
+        } else if dep_src_id.is_path() {
+            debug!("from path");
+            let path = dep_src_id
+                .url()
+                .to_file_path()
+                .expect(&format!("path of {} must be valid", dep.name_in_toml()));
+            let mut src = PathSource::new(&path, dep_src_id, &config);
+            src.update()?;
+            dep_pkgs.push(download_dependency(dep, &mut src, &config)?);
+        } else if dep_src_id.is_git() {
+            debug!("from git");
+            dep_pkgs.push(download_dependency(
+                dep,
+                GitSource::new(dep_src_id, &config)?,
+                &config,
+            )?);
         } else {
+            debug!("from elsewhere");
             let config_map = SourceConfigMap::new(&config)?;
-            let mut src = config_map.load(dep.source_id(), &Default::default())?;
+            let mut src = config_map.load(dep_src_id, &Default::default())?;
             src.update()?;
             dep_pkgs.push(download_dependency(dep, &mut src, &config)?);
         }
@@ -195,8 +220,11 @@ fn structs_from_submodules(module: &Module<'_>) -> Result<Vec<Struct>> {
             new_path.pop();
             new_path.push(path);
 
-            let cat = if new_path.file_name().unwrap() == "mod.rs" {
+            let file_name = new_path.file_name().unwrap();
+            let cat = if file_name == "mod.rs" {
                 ModuleCategory::Mod
+            } else if file_name == "lib.rs" {
+                ModuleCategory::Root
             } else {
                 ModuleCategory::Direct
             };
@@ -210,7 +238,7 @@ fn structs_from_submodules(module: &Module<'_>) -> Result<Vec<Struct>> {
         } else {
             sub_mods.push(module.submodule(&ast_mod.name).ok_or_else(|| {
                 Error::InvalidCrate(format!(
-                    "Failed to find sub-module {} for module {:?}",
+                    "Failed to find sub-module {} for module {}",
                     ast_mod.name, module
                 ))
             })?);
@@ -244,11 +272,34 @@ struct Module<'par> {
     cat: ModuleCategory,
 }
 
+impl Display for Module<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{} at {} of type {}",
+            self.rust_path,
+            self.path.display(),
+            self.cat
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ModuleCategory {
     Root,   // lib.rs
     Direct, // foo.rs
     Mod,    // foo/mod.rs
+}
+
+impl Display for ModuleCategory {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        use ModuleCategory::*;
+        match self {
+            Root => write!(f, "Root"),
+            Direct => write!(f, "Direct"),
+            Mod => write!(f, "Mod"),
+        }
+    }
 }
 
 impl Module<'_> {

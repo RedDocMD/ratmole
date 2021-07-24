@@ -25,9 +25,9 @@ pub fn parse_cargo<T: AsRef<path::Path>>(
 
     let toml_manifest: TomlManifest = toml::from_str(&toml_content)?;
     let toml_manifest = Rc::new(toml_manifest);
-    let cargo_source = SourceId::crates_io(&config)?;
+    let source_id = SourceId::for_path(crate_root.as_ref())?;
     let (manifest, paths) =
-        TomlManifest::to_real_manifest(&toml_manifest, cargo_source, crate_root.as_ref(), &config)?;
+        TomlManifest::to_real_manifest(&toml_manifest, source_id, crate_root.as_ref(), &config)?;
     debug!("{}: {:?}", "Paths".red(), paths);
     Ok((manifest, toml_path))
 }
