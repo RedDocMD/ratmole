@@ -1,6 +1,9 @@
 use colored::*;
 
-use std::fmt::{self, Display, Formatter};
+use std::{
+    collections::HashMap,
+    fmt::{self, Display, Formatter},
+};
 
 #[derive(Debug, Clone)]
 pub struct Struct {
@@ -124,7 +127,7 @@ impl Struct {
 }
 
 impl Visibility {
-    fn from_syn(item: &syn::Visibility) -> Self {
+    pub fn from_syn(item: &syn::Visibility) -> Self {
         match item {
             syn::Visibility::Public(_) => Self::Public,
             syn::Visibility::Crate(_) => Self::Crate,
@@ -142,9 +145,10 @@ impl Visibility {
     }
 }
 
-pub fn structs_from_items(items: &[syn::Item], module: Path) -> Vec<Struct> {
+pub fn structs_from_items(items: &[syn::Item], module: Path) -> (Vec<Struct>, Vec<ModuleInfo>) {
     use syn::Item;
     let mut structs = Vec::new();
+    let mut infos = Vec::new();
     for item in items {
         match item {
             Item::Struct(item) => structs.push(Struct::from_syn(item, module.clone())),
@@ -152,11 +156,48 @@ pub fn structs_from_items(items: &[syn::Item], module: Path) -> Vec<Struct> {
                 let mut new_module = module.clone();
                 new_module.push_name(item.ident.to_string());
                 if let Some((_, content)) = &item.content {
-                    structs.append(&mut structs_from_items(content, new_module.clone()));
+                    let mut info =
+                        ModuleInfo::new(item.ident.to_string(), Visibility::from_syn(&item.vis));
+                    let (mut new_structs, new_infos) =
+                        structs_from_items(content, new_module.clone());
+                    structs.append(&mut new_structs);
+                    info.add_children(new_infos);
+                    infos.push(info);
                 }
             }
             _ => {}
         }
     }
-    structs
+    (structs, infos)
+}
+
+#[derive(Debug)]
+pub struct ModuleInfo {
+    name: String,
+    vis: Visibility,
+    children: HashMap<String, ModuleInfo>,
+}
+
+impl ModuleInfo {
+    pub fn new(name: String, vis: Visibility) -> Self {
+        Self {
+            name,
+            vis,
+            children: HashMap::new(),
+        }
+    }
+
+    pub fn add_child(&mut self, name: String, vis: Visibility) {
+        self.children.insert(name.clone(), Self::new(name, vis));
+    }
+
+    pub fn add_child_mod(&mut self, info: ModuleInfo) {
+        self.children.insert(info.name.clone(), info);
+    }
+
+    pub fn add_children(&mut self, children: Vec<ModuleInfo>) {
+        for child in children {
+            self.add_child_mod(child);
+        }
+    }
 }
