@@ -4,7 +4,10 @@ use crate::{
     structs::{structs_from_items, ModuleInfo, Path, Struct, Visibility},
 };
 use cargo::{
-    core::{manifest::TargetSourcePath, Package, Source, SourceId, Target, TargetKind},
+    core::{
+        dependency::DepKind, manifest::TargetSourcePath, Package, Source, SourceId, Target,
+        TargetKind,
+    },
     sources::{GitSource, PathSource, SourceConfigMap},
     Config,
 };
@@ -15,7 +18,6 @@ use std::{
     fs::File,
     io::Read,
     path::PathBuf,
-    sync::Mutex,
 };
 use syn::{parenthesized, parse::Parse, token, Item, LitStr, Token};
 
@@ -106,25 +108,23 @@ pub fn structs_in_crate_and_deps<T: AsRef<std::path::Path>>(
     let pkgs = download_dependencies(&main_cargo_pkg, &config)?;
 
     let main_pkg = SimplePackage::from_cargo(main_cargo_pkg);
-    let structs = Mutex::new(Vec::new());
+    let mut structs = Vec::new();
     debug!("Exploring {}", main_pkg.name());
     {
-        let mut structs = structs.lock().unwrap();
         structs.append(&mut structs_in_main_crate(&main_pkg)?);
     }
 
     let pkgs: Vec<SimplePackage> = pkgs.into_iter().map(SimplePackage::from_cargo).collect();
-    pkgs.par_iter().for_each(|pkg| {
-        debug!("Exploring {}", pkg.name());
-        let mut new_structs = structs_in_dependency(pkg).unwrap();
-        let mut structs = structs.lock().unwrap();
-        structs.append(&mut new_structs);
-    });
-
-    let mut structs = structs.lock().unwrap();
-    let mut out_structs = Vec::new();
-    out_structs.append(&mut structs);
-    Ok(out_structs)
+    let mut struct_vecs = Vec::new();
+    pkgs.par_iter()
+        .map(|pkg| {
+            debug!("Exploring {}", pkg.name());
+            structs_in_dependency(pkg).unwrap()
+        })
+        .collect_into_vec(&mut struct_vecs);
+    let mut new_structs = struct_vecs.into_iter().flatten().collect();
+    structs.append(&mut new_structs);
+    Ok(structs)
 }
 
 fn download_dependencies(pkg: &Package, config: &Config) -> Result<Vec<Package>> {
@@ -136,6 +136,9 @@ fn download_dependencies(pkg: &Package, config: &Config) -> Result<Vec<Package>>
 
     let mut dep_pkgs = Vec::new();
     for dep in pkg.dependencies() {
+        if dep.kind() != DepKind::Normal {
+            continue;
+        }
         debug!("Downloading {} ...", dep.name_in_toml());
         let dep_src_id = dep.source_id();
         if dep_src_id == crates_io_id {
@@ -231,6 +234,7 @@ fn structs_from_submodules(module: &Module<'_>) -> Result<(Vec<Struct>, Vec<Modu
         Some(mods) => mods,
         None => return Ok((vec![], vec![])),
     };
+
     let mut sub_mods = Vec::new();
     for ast_mod in &empty_mods {
         if let Some(path) = &ast_mod.path {
@@ -270,41 +274,33 @@ fn structs_from_submodules(module: &Module<'_>) -> Result<(Vec<Struct>, Vec<Modu
             );
         }
     }
-    let structs = Mutex::new(Vec::new());
-    let infos = Mutex::new(Vec::new());
-    sub_mods.par_iter().for_each(|sub_mod| {
-        let mut sub_mod_info = ModuleInfo::new(String::from(sub_mod.name), sub_mod.vis.clone());
-        let (mut self_structs, child_infos) =
-            structs_from_file(&sub_mod.path, sub_mod.rust_path.clone())
-                .unwrap()
-                .unwrap_or_else(|| {
-                    warn!(
-                        "failed to parse {}",
-                        sub_mod.path.as_os_str().to_str().unwrap()
-                    );
-                    (vec![], vec![])
-                });
-        sub_mod_info.add_children(child_infos);
-        let (mut sub_structs, child_infos) = structs_from_submodules(sub_mod).unwrap();
-        {
-            let mut structs = structs.lock().unwrap();
-            structs.append(&mut self_structs);
-            structs.append(&mut sub_structs);
-        }
-        sub_mod_info.add_children(child_infos);
-        {
-            let mut info = infos.lock().unwrap();
-            info.push(sub_mod_info);
-        }
-    });
 
-    let mut structs = structs.lock().unwrap();
-    let mut out_structs = Vec::new();
-    out_structs.append(&mut structs);
-    let mut infos = infos.lock().unwrap();
-    let mut out_infos = Vec::new();
-    out_infos.append(&mut infos);
-    Ok((out_structs, out_infos))
+    let mut things = Vec::new();
+    sub_mods
+        .par_iter()
+        .map(|sub_mod| {
+            let mut sub_mod_info = ModuleInfo::new(String::from(sub_mod.name), sub_mod.vis.clone());
+            let (mut self_structs, child_infos) =
+                structs_from_file(&sub_mod.path, sub_mod.rust_path.clone())
+                    .unwrap()
+                    .unwrap_or_else(|| {
+                        warn!(
+                            "failed to parse {}",
+                            sub_mod.path.as_os_str().to_str().unwrap()
+                        );
+                        (vec![], vec![])
+                    });
+            sub_mod_info.add_children(child_infos);
+            let (mut sub_structs, child_infos) = structs_from_submodules(sub_mod).unwrap();
+            sub_mod_info.add_children(child_infos);
+
+            self_structs.append(&mut sub_structs);
+            (self_structs, sub_mod_info)
+        })
+        .collect_into_vec(&mut things);
+
+    let (vec_structs, infos): (Vec<_>, Vec<_>) = things.into_iter().unzip();
+    Ok((vec_structs.into_iter().flatten().collect(), infos))
 }
 
 #[derive(Debug)]
