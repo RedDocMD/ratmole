@@ -173,7 +173,7 @@ fn structs_in_main_crate(pkg: &SimplePackage) -> Result<Vec<Struct>> {
     let mut structs = Vec::new();
     for target in pkg.targets() {
         let (mut new_structs, info) = structs_in_target(target)?;
-        println!("{:#?}", info);
+        println!("{}", info);
         structs.append(&mut new_structs);
     }
     Ok(structs)
@@ -183,7 +183,7 @@ fn structs_in_dependency(pkg: &SimplePackage) -> Result<Vec<Struct>> {
     match pkg.library() {
         Some(lib) => {
             let (new_structs, info) = structs_in_target(lib)?;
-            println!("{:#?}", info);
+            println!("{}", info);
             Ok(new_structs)
         }
         None => Ok(Vec::new()),
