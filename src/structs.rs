@@ -201,7 +201,7 @@ impl ModuleInfo {
         }
     }
 
-    fn dump(&self, f: &mut Formatter<'_>, positions: Vec<DepthPosition>) -> fmt::Result {
+    fn dump(&self, f: &mut Formatter<'_>, positions: &mut Vec<DepthPosition>) -> fmt::Result {
         for pos in &positions[0..positions.len() - 1] {
             match pos {
                 DepthPosition::Other => write!(f, "\u{2502} ")?,
@@ -222,15 +222,15 @@ impl ModuleInfo {
             } else {
                 DepthPosition::Other
             };
-            let mut positions = positions.clone();
             positions.push(new_pos);
             info.dump(f, positions)?;
+            positions.pop();
         }
         Ok(())
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 enum DepthPosition {
     Root,
     Last,
@@ -239,6 +239,6 @@ enum DepthPosition {
 
 impl Display for ModuleInfo {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.dump(f, vec![DepthPosition::Root])
+        self.dump(f, &mut vec![DepthPosition::Root])
     }
 }
