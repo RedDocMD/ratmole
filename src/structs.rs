@@ -187,6 +187,10 @@ impl ModuleInfo {
         }
     }
 
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     pub fn add_child(&mut self, name: String, vis: Visibility) {
         self.children.insert(name.clone(), Self::new(name, vis));
     }

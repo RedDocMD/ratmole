@@ -1,5 +1,5 @@
 use colored::*;
-use ratmole::{error::Error, explore::structs_in_crate_and_deps};
+use ratmole::{error::Error, explore::crate_info};
 use std::{env, io::Write};
 
 fn main() -> Result<(), Error> {
@@ -19,10 +19,7 @@ fn main() -> Result<(), Error> {
 
     let args: Vec<String> = env::args().collect();
     let crate_path = &args[1];
-    let structs = structs_in_crate_and_deps(crate_path)?;
-    for st in &structs {
-        println!("{}", st);
-    }
-    println!("{} structs found!", structs.len());
+    let info = crate_info(crate_path)?;
+    println!("{}", info);
     Ok(())
 }

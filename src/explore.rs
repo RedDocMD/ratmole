@@ -11,9 +11,11 @@ use cargo::{
     sources::{GitSource, PathSource, SourceConfigMap},
     Config,
 };
+use colored::*;
 use log::{debug, warn};
 use rayon::prelude::*;
 use std::{
+    collections::HashMap,
     fmt::{self, Display, Formatter},
     fs::File,
     io::Read,
@@ -99,9 +101,72 @@ impl SimpleTarget {
     }
 }
 
-pub fn structs_in_crate_and_deps<T: AsRef<std::path::Path>>(
-    main_crate_root: T,
-) -> Result<Vec<Struct>> {
+pub struct MainCrateInfo {
+    structs: Vec<Struct>,
+    main_mod_info: HashMap<SimpleTargetKind, ModuleInfo>,
+    dep_mod_info: HashMap<String, ModuleInfo>,
+}
+
+impl Display for MainCrateInfo {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        writeln!(f, "{}", "STRUCTS".bright_red())?;
+        for s in &self.structs {
+            writeln!(f, "{}", s)?;
+        }
+        writeln!(f, "\n{}", "MAIN CRATE".bright_red())?;
+        for (targ, info) in &self.main_mod_info {
+            writeln!(f, "{}", targ)?;
+            writeln!(f, "{}", info)?;
+        }
+        writeln!(f, "")?;
+        for (name, info) in &self.dep_mod_info {
+            writeln!(f, "{}", name.bright_red())?;
+            writeln!(f, "{}", info)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(PartialEq, Eq, Hash)]
+pub enum SimpleTargetKind {
+    Binary,
+    Library,
+    ExampleLib,
+    ExampleBin,
+    Benchmark,
+    Test,
+    Custom,
+}
+
+impl From<TargetKind> for SimpleTargetKind {
+    fn from(kind: TargetKind) -> SimpleTargetKind {
+        match kind {
+            TargetKind::Lib(_) => SimpleTargetKind::Library,
+            TargetKind::Bin => SimpleTargetKind::Binary,
+            TargetKind::Test => SimpleTargetKind::Test,
+            TargetKind::Bench => SimpleTargetKind::Benchmark,
+            TargetKind::ExampleLib(_) => SimpleTargetKind::ExampleLib,
+            TargetKind::ExampleBin => SimpleTargetKind::ExampleBin,
+            TargetKind::CustomBuild => SimpleTargetKind::Custom,
+        }
+    }
+}
+
+impl Display for SimpleTargetKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            SimpleTargetKind::Binary => write!(f, "Binary"),
+            SimpleTargetKind::Library => write!(f, "Library"),
+            SimpleTargetKind::ExampleLib => write!(f, "ExampleLib"),
+            SimpleTargetKind::ExampleBin => write!(f, "ExampleBin"),
+            SimpleTargetKind::Benchmark => write!(f, "Benchmark"),
+            SimpleTargetKind::Test => write!(f, "Test"),
+            SimpleTargetKind::Custom => write!(f, "Custom"),
+        }
+    }
+}
+
+pub fn crate_info<T: AsRef<std::path::Path>>(main_crate_root: T) -> Result<MainCrateInfo> {
     let config = Config::default()?;
     let (manifest, manifest_path) = parse_cargo(&main_crate_root, &config)?;
     let main_cargo_pkg = Package::new(manifest, &manifest_path);
@@ -109,22 +174,33 @@ pub fn structs_in_crate_and_deps<T: AsRef<std::path::Path>>(
 
     let main_pkg = SimplePackage::from_cargo(main_cargo_pkg);
     let mut structs = Vec::new();
+    let mut dep_mod_info = HashMap::new();
+
     debug!("Exploring {}", main_pkg.name());
-    {
-        structs.append(&mut structs_in_main_crate(&main_pkg)?);
-    }
+    let (mut main_structs, main_mod_info) = structs_in_main_crate(&main_pkg)?;
+    structs.append(&mut main_structs);
 
     let pkgs: Vec<SimplePackage> = pkgs.into_iter().map(SimplePackage::from_cargo).collect();
-    let mut struct_vecs = Vec::new();
+    let mut things = Vec::new();
     pkgs.par_iter()
         .map(|pkg| {
             debug!("Exploring {}", pkg.name());
             structs_in_dependency(pkg).unwrap()
         })
-        .collect_into_vec(&mut struct_vecs);
-    let mut new_structs = struct_vecs.into_iter().flatten().collect();
-    structs.append(&mut new_structs);
-    Ok(structs)
+        .collect_into_vec(&mut things);
+    let (dep_structs, dep_infos): (Vec<_>, Vec<_>) = things.into_iter().unzip();
+    structs.append(&mut dep_structs.into_iter().flatten().collect());
+    dep_mod_info.extend(
+        dep_infos
+            .into_iter()
+            .map(|info| (String::from(info.name()), info)),
+    );
+
+    Ok(MainCrateInfo {
+        structs,
+        main_mod_info,
+        dep_mod_info,
+    })
 }
 
 fn download_dependencies(pkg: &Package, config: &Config) -> Result<Vec<Package>> {
@@ -172,24 +248,29 @@ fn download_dependencies(pkg: &Package, config: &Config) -> Result<Vec<Package>>
     Ok(dep_pkgs)
 }
 
-fn structs_in_main_crate(pkg: &SimplePackage) -> Result<Vec<Struct>> {
+fn structs_in_main_crate(
+    pkg: &SimplePackage,
+) -> Result<(Vec<Struct>, HashMap<SimpleTargetKind, ModuleInfo>)> {
     let mut structs = Vec::new();
+    let mut infos = HashMap::new();
     for target in pkg.targets() {
         let (mut new_structs, info) = structs_in_target(target)?;
-        println!("{}", info);
         structs.append(&mut new_structs);
+        infos.insert(SimpleTargetKind::from(target.kind.clone()), info);
     }
-    Ok(structs)
+    Ok((structs, infos))
 }
 
-fn structs_in_dependency(pkg: &SimplePackage) -> Result<Vec<Struct>> {
+fn structs_in_dependency(pkg: &SimplePackage) -> Result<(Vec<Struct>, ModuleInfo)> {
     match pkg.library() {
         Some(lib) => {
             let (new_structs, info) = structs_in_target(lib)?;
-            println!("{}", info);
-            Ok(new_structs)
+            Ok((new_structs, info))
         }
-        None => Ok(Vec::new()),
+        None => Ok((
+            Vec::new(),
+            ModuleInfo::new(pkg.name.clone(), Visibility::Public),
+        )),
     }
 }
 
