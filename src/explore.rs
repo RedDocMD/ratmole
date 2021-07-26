@@ -47,11 +47,8 @@ struct SimplePackage {
 
 impl SimplePackage {
     fn from_cargo(pkg: Package) -> Self {
-        let targets: Vec<SimpleTarget> = pkg
-            .targets()
-            .into_iter()
-            .map(SimpleTarget::from_cargo)
-            .collect();
+        let targets: Vec<SimpleTarget> =
+            pkg.targets().iter().map(SimpleTarget::from_cargo).collect();
         Self {
             targets,
             name: String::from(pkg.name().as_str()),
@@ -63,13 +60,9 @@ impl SimplePackage {
     }
 
     fn library(&self) -> Option<&SimpleTarget> {
-        self.targets.iter().find(|targ| {
-            if let TargetKind::Lib(_) = targ.kind {
-                true
-            } else {
-                false
-            }
-        })
+        self.targets
+            .iter()
+            .find(|targ| matches!(targ.kind, TargetKind::Lib(_)))
     }
 
     fn name(&self) -> &String {
@@ -107,6 +100,12 @@ pub struct MainCrateInfo {
     dep_mod_info: HashMap<String, ModuleInfo>,
 }
 
+impl MainCrateInfo {
+    pub fn structs(&self) -> &[Struct] {
+        &self.structs
+    }
+}
+
 impl Display for MainCrateInfo {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(f, "{}", "STRUCTS".bright_red())?;
@@ -118,7 +117,7 @@ impl Display for MainCrateInfo {
             writeln!(f, "{}", targ)?;
             writeln!(f, "{}", info)?;
         }
-        writeln!(f, "")?;
+        writeln!(f)?;
         for (name, info) in &self.dep_mod_info {
             writeln!(f, "{}", name.bright_red())?;
             writeln!(f, "{}", info)?;
@@ -479,10 +478,9 @@ struct PathAttr {
 
 impl Parse for PathAttr {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        Ok(PathAttr {
-            _eq: input.parse()?,
-            path: input.parse()?,
-        })
+        let eq = input.parse()?;
+        let path = input.parse()?;
+        Ok(PathAttr { _eq: eq, path })
     }
 }
 
@@ -498,13 +496,19 @@ struct CfgAttrWithPath {
 impl Parse for CfgAttrWithPath {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let content;
+        let paren = parenthesized!(content in input);
+        let cond = content.parse()?;
+        let comma = content.parse()?;
+        let path_word = content.parse()?;
+        let eq = content.parse()?;
+        let path = content.parse()?;
         Ok(CfgAttrWithPath {
-            _paren: parenthesized!(content in input),
-            _cond: content.parse()?,
-            _comma: content.parse()?,
-            _path_word: content.parse()?,
-            _eq: content.parse()?,
-            path: content.parse()?,
+            _paren: paren,
+            _cond: cond,
+            _comma: comma,
+            _path_word: path_word,
+            _eq: eq,
+            path,
         })
     }
 }

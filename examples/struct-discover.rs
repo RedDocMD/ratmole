@@ -1,5 +1,5 @@
 use colored::*;
-use ratmole::{error::Error, explore::crate_info};
+use ratmole::{error::Error, explore::crate_info, tree::StructTree};
 use std::{env, io::Write};
 
 fn main() -> Result<(), Error> {
@@ -21,5 +21,6 @@ fn main() -> Result<(), Error> {
     let crate_path = &args[1];
     let info = crate_info(crate_path)?;
     println!("{}", info);
+    let tree = StructTree::new(info.structs());
     Ok(())
 }
