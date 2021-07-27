@@ -222,41 +222,6 @@ impl ModuleInfo {
             self.add_child_mod(child);
         }
     }
-
-    // fn dump(&self, f: &mut Formatter<'_>, positions: &mut Vec<DepthPosition>) -> fmt::Result {
-    //     for pos in &positions[0..positions.len() - 1] {
-    //         match pos {
-    //             DepthPosition::Other => write!(f, "\u{2502} ")?,
-    //             DepthPosition::Last => write!(f, "  ")?,
-    //             DepthPosition::Root => {}
-    //         }
-    //     }
-    //     match positions.last().unwrap() {
-    //         DepthPosition::Root => { /* Do Nothing */ }
-    //         DepthPosition::Last => write!(f, "\u{2514}\u{2500}")?,
-    //         DepthPosition::Other => write!(f, "\u{251C}\u{2500}")?,
-    //     }
-    //     writeln!(f, "{}{}", self.vis.to_string().magenta(), self.name)?;
-    //     let child_cnt = self.children.len();
-    //     for (idx, info) in self.children.values().enumerate() {
-    //         let new_pos = if idx == child_cnt - 1 {
-    //             DepthPosition::Last
-    //         } else {
-    //             DepthPosition::Other
-    //         };
-    //         positions.push(new_pos);
-    //         info.dump(f, positions)?;
-    //         positions.pop();
-    //     }
-    //     Ok(())
-    // }
-}
-
-#[derive(PartialEq, Eq)]
-enum DepthPosition {
-    Root,
-    Last,
-    Other,
 }
 
 impl TreePrintable for ModuleInfo {
@@ -275,5 +240,15 @@ impl TreePrintable for ModuleInfo {
 impl Display for ModuleInfo {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.tree_print(f)
+    }
+}
+
+impl TreePrintable for &Struct {
+    fn single_write(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {}", "struct".red(), self.name)
+    }
+
+    fn children(&self) -> Vec<&dyn TreePrintable> {
+        vec![]
     }
 }

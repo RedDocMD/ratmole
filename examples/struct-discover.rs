@@ -22,5 +22,6 @@ fn main() -> Result<(), Error> {
     let info = crate_info(crate_path)?;
     println!("{}", info);
     let tree = StructTree::new(info.structs());
+    println!("{}", tree);
     Ok(())
 }

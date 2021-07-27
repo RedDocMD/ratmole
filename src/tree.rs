@@ -1,6 +1,15 @@
-use std::{collections::HashMap, ops::Deref};
+use std::{
+    collections::HashMap,
+    fmt::{self, Display, Formatter},
+    ops::Deref,
+};
 
-use crate::structs::{PathComponent, Struct};
+use crate::{
+    printer::TreePrintable,
+    structs::{PathComponent, Struct},
+};
+
+use colored::*;
 
 #[derive(Debug)]
 pub struct PathNode<'s> {
@@ -29,7 +38,7 @@ impl<'s> StructTree<'s> {
     pub fn new(structs: &'s [Struct]) -> Self {
         let mut tree = Self {
             structs,
-            root: PathNode::new(String::from("")),
+            root: PathNode::new(String::from("<root>")),
         };
         for st in structs {
             tree.add_struct(st);
@@ -64,5 +73,23 @@ fn node_add_struct<'s, 'c>(node: &mut PathNode<'s>, comps: &'c [&'s str], st: &'
         }
         let new_node = node.child_mods.get_mut(comps[0]).unwrap();
         node_add_struct(new_node, &comps[1..], st);
+    }
+}
+
+impl TreePrintable for PathNode<'_> {
+    fn single_write(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {}", "mod".magenta(), self.name)
+    }
+
+    fn children(&self) -> Vec<&dyn TreePrintable> {
+        let mods = self.child_mods.values().map(|x| x as &dyn TreePrintable);
+        let structs = self.child_structs.values().map(|x| x as &dyn TreePrintable);
+        mods.chain(structs).collect()
+    }
+}
+
+impl Display for StructTree<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.root.tree_print(f)
     }
 }
