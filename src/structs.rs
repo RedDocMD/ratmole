@@ -142,6 +142,19 @@ impl Struct {
             module,
         }
     }
+
+    pub(crate) fn renamed(&self, new_name: &str) -> Self {
+        Self {
+            name: String::from(new_name),
+            vis: self.vis.clone(),
+            params: self.params.clone(),
+            module: self.module.clone(),
+        }
+    }
+
+    pub(crate) fn set_visibility(&mut self, vis: Visibility) {
+        self.vis = vis;
+    }
 }
 
 impl Visibility {
