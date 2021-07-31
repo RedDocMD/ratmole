@@ -42,16 +42,10 @@ impl Struct {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Path(Vec<PathComponent>);
 
-impl Path {
-    pub fn components(&self) -> &[PathComponent] {
-        &self.0
-    }
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PathComponent {
     Global,       // ::
     SmallSelf,    // self
@@ -91,6 +85,14 @@ impl From<String> for PathComponent {
 impl Path {
     pub fn push_name(&mut self, comp: String) {
         self.0.push(PathComponent::Name(comp));
+    }
+
+    pub fn components(&self) -> &[PathComponent] {
+        &self.0
+    }
+
+    pub(crate) fn pop(&mut self) {
+        self.0.pop();
     }
 }
 
@@ -176,7 +178,10 @@ impl Visibility {
     }
 }
 
-pub fn structs_from_items(items: &[syn::Item], module: Path) -> (Vec<Struct>, Vec<ModuleInfo>) {
+pub fn structs_from_items(
+    items: &[syn::Item],
+    module: &mut Path,
+) -> (Vec<Struct>, Vec<ModuleInfo>) {
     use syn::Item;
     let mut structs = Vec::new();
     let mut infos = Vec::new();
@@ -184,17 +189,16 @@ pub fn structs_from_items(items: &[syn::Item], module: Path) -> (Vec<Struct>, Ve
         match item {
             Item::Struct(item) => structs.push(Struct::from_syn(item, module.clone())),
             Item::Mod(item) => {
-                let mut new_module = module.clone();
-                new_module.push_name(item.ident.to_string());
+                module.push_name(item.ident.to_string());
                 if let Some((_, content)) = &item.content {
                     let mut info =
                         ModuleInfo::new(item.ident.to_string(), Visibility::from_syn(&item.vis));
-                    let (mut new_structs, new_infos) =
-                        structs_from_items(content, new_module.clone());
+                    let (mut new_structs, new_infos) = structs_from_items(content, module);
                     structs.append(&mut new_structs);
                     info.add_children(new_infos);
                     infos.push(info);
                 }
+                module.pop();
             }
             _ => {}
         }

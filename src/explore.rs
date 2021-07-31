@@ -2,6 +2,7 @@ use crate::{
     cargo::{download_dependency, parse_cargo},
     error::{Error, Result},
     structs::{structs_from_items, ModuleInfo, Path, Struct, Visibility},
+    use_path::{use_paths_from_items, UsePath},
 };
 use cargo::{
     core::{
@@ -23,16 +24,21 @@ use std::{
 };
 use syn::{parenthesized, parse::Parse, token, Item, LitStr, Token};
 
-fn structs_from_file<T: AsRef<std::path::Path>>(
+fn things_from_file<T, F, R>(
     file_path: T,
-    module: crate::structs::Path,
-) -> Result<Option<(Vec<Struct>, Vec<ModuleInfo>)>> {
+    mut module: crate::structs::Path,
+    f: F,
+) -> Result<Option<R>>
+where
+    T: AsRef<std::path::Path>,
+    F: Fn(&[syn::Item], &mut Path) -> R,
+{
     debug!("{}", file_path.as_ref().as_os_str().to_str().unwrap());
     let mut file = File::open(file_path.as_ref())?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
     match syn::parse_file(&contents) {
-        Ok(ast) => Ok(Some(structs_from_items(&ast.items, module))),
+        Ok(ast) => Ok(Some(f(&ast.items, &mut module))),
         Err(err) => {
             warn!("{}", err);
             Ok(None)
@@ -195,6 +201,10 @@ pub fn crate_info<T: AsRef<std::path::Path>>(main_crate_root: T) -> Result<MainC
             .map(|info| (String::from(info.name()), info)),
     );
 
+    for pkg in &pkgs {
+        use_paths_in_dependency(pkg)?;
+    }
+
     Ok(MainCrateInfo {
         structs,
         main_mod_info,
@@ -262,14 +272,18 @@ fn structs_in_main_crate(
 
 fn structs_in_dependency(pkg: &SimplePackage) -> Result<(Vec<Struct>, ModuleInfo)> {
     match pkg.library() {
-        Some(lib) => {
-            let (new_structs, info) = structs_in_target(lib)?;
-            Ok((new_structs, info))
-        }
+        Some(lib) => Ok(structs_in_target(lib)?),
         None => Ok((
             Vec::new(),
             ModuleInfo::new(pkg.name.clone(), Visibility::Public),
         )),
+    }
+}
+
+fn use_paths_in_dependency(pkg: &SimplePackage) -> Result<HashMap<Path, Vec<UsePath>>> {
+    match pkg.library() {
+        Some(lib) => Ok(use_paths_in_target(lib)?),
+        None => Ok(HashMap::new()),
     }
 }
 
@@ -288,11 +302,15 @@ fn structs_in_target(targ: &SimpleTarget) -> Result<(Vec<Struct>, ModuleInfo)> {
     let mut structs = Vec::new();
     let mut info = ModuleInfo::new(crate_name.clone(), Visibility::Public);
 
-    let (mut new_structs, child_infos) =
-        structs_from_file(&src_path, Path::from(vec![crate_name.clone()]))?.unwrap_or_else(|| {
-            warn!("failed to parse {}", src_path.as_os_str().to_str().unwrap());
-            (vec![], vec![])
-        });
+    let (mut new_structs, child_infos) = things_from_file(
+        &src_path,
+        Path::from(vec![crate_name.clone()]),
+        structs_from_items,
+    )?
+    .unwrap_or_else(|| {
+        warn!("failed to parse {}", src_path.display());
+        (vec![], vec![])
+    });
     structs.append(&mut new_structs);
     info.add_children(child_infos);
 
@@ -309,51 +327,37 @@ fn structs_in_target(targ: &SimpleTarget) -> Result<(Vec<Struct>, ModuleInfo)> {
     Ok((structs, info))
 }
 
+fn use_paths_in_target(targ: &SimpleTarget) -> Result<HashMap<Path, Vec<UsePath>>> {
+    let crate_name = targ.crate_name();
+    let src_path = match targ.src_path() {
+        TargetSourcePath::Path(path) => path,
+        TargetSourcePath::Metabuild => return Ok(HashMap::new()),
+    };
+    let mut use_paths = things_from_file(
+        &src_path,
+        Path::from(vec![crate_name.clone()]),
+        use_paths_from_items,
+    )?
+    .unwrap_or_else(|| {
+        warn!("failed to parse {}", src_path.display());
+        HashMap::new()
+    });
+    for (k, v) in &use_paths {
+        println!("{}: ", k.to_string().red());
+        for p in v {
+            println!("    {}", p);
+        }
+    }
+    Ok(use_paths)
+}
+
 fn structs_from_submodules(module: &Module<'_>) -> Result<(Vec<Struct>, Vec<ModuleInfo>)> {
     let empty_mods = match empty_modules_from_file(&module.path)? {
         Some(mods) => mods,
         None => return Ok((vec![], vec![])),
     };
 
-    let mut sub_mods = Vec::new();
-    for ast_mod in &empty_mods {
-        if let Some(path) = &ast_mod.path {
-            let mut new_mod_path = module.rust_path.clone();
-            new_mod_path.push_name(ast_mod.name.clone());
-
-            let mut new_path = module.path.clone();
-            new_path.pop();
-            new_path.push(path);
-
-            let file_name = new_path.file_name().unwrap();
-            let cat = if file_name == "mod.rs" {
-                ModuleCategory::Mod
-            } else if file_name == "lib.rs" {
-                ModuleCategory::Root
-            } else {
-                ModuleCategory::Direct
-            };
-
-            sub_mods.push(Module {
-                path: new_path,
-                rust_path: new_mod_path,
-                name: &ast_mod.name,
-                cat,
-                vis: ast_mod.vis.clone(),
-            });
-        } else {
-            sub_mods.push(
-                module
-                    .submodule(&ast_mod.name, ast_mod.vis.clone())
-                    .ok_or_else(|| {
-                        Error::InvalidCrate(format!(
-                            "Failed to find sub-module {} for module {}",
-                            ast_mod.name, module
-                        ))
-                    })?,
-            );
-        }
-    }
+    let sub_mods = module.direct_submodules(&empty_mods)?;
 
     let mut things = Vec::new();
     sub_mods
@@ -361,7 +365,7 @@ fn structs_from_submodules(module: &Module<'_>) -> Result<(Vec<Struct>, Vec<Modu
         .map(|sub_mod| {
             let mut sub_mod_info = ModuleInfo::new(String::from(sub_mod.name), sub_mod.vis.clone());
             let (mut self_structs, child_infos) =
-                structs_from_file(&sub_mod.path, sub_mod.rust_path.clone())
+                things_from_file(&sub_mod.path, sub_mod.rust_path.clone(), structs_from_items)
                     .unwrap()
                     .unwrap_or_else(|| {
                         warn!(
@@ -462,6 +466,48 @@ impl Module<'_> {
         }
 
         None
+    }
+
+    fn direct_submodules<'m>(&self, empty_mods: &'m [ASTModule]) -> Result<Vec<Module<'m>>> {
+        let mut sub_mods = Vec::new();
+        for ast_mod in empty_mods {
+            if let Some(path) = &ast_mod.path {
+                let mut new_mod_path = self.rust_path.clone();
+                new_mod_path.push_name(ast_mod.name.clone());
+
+                let mut new_path = self.path.clone();
+                new_path.pop();
+                new_path.push(path);
+
+                let file_name = new_path.file_name().unwrap();
+                let cat = if file_name == "mod.rs" {
+                    ModuleCategory::Mod
+                } else if file_name == "lib.rs" {
+                    ModuleCategory::Root
+                } else {
+                    ModuleCategory::Direct
+                };
+
+                sub_mods.push(Module {
+                    path: new_path,
+                    rust_path: new_mod_path,
+                    name: &ast_mod.name,
+                    cat,
+                    vis: ast_mod.vis.clone(),
+                });
+            } else {
+                sub_mods.push(
+                    self.submodule(&ast_mod.name, ast_mod.vis.clone())
+                        .ok_or_else(|| {
+                            Error::InvalidCrate(format!(
+                                "Failed to find sub-self {} for module {}",
+                                ast_mod.name, self
+                            ))
+                        })?,
+                );
+            }
+        }
+        Ok(sub_mods)
     }
 }
 

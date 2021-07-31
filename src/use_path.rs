@@ -1,6 +1,9 @@
-use std::fmt::{self, Display, Formatter};
+use std::{
+    collections::HashMap,
+    fmt::{self, Display, Formatter},
+};
 
-use crate::structs::Visibility;
+use crate::structs::{Path, Visibility};
 
 #[derive(Clone)]
 pub enum UsePathComponent {
@@ -89,19 +92,31 @@ fn use_paths_from_use_tree(tree: &syn::UseTree, vis: &Visibility) -> Vec<UsePath
     }
 }
 
-pub fn use_paths_from_items(items: &[syn::Item]) -> Vec<UsePath> {
-    items
-        .iter()
-        .filter_map(|item| {
-            if let syn::Item::Use(item) = item {
-                Some(use_paths_from_use_tree(
-                    &item.tree,
-                    &Visibility::from_syn(&item.vis),
-                ))
-            } else {
-                None
+pub fn use_paths_from_items(items: &[syn::Item], module: &mut Path) -> HashMap<Path, Vec<UsePath>> {
+    let mut paths_map: HashMap<Path, Vec<UsePath>> = HashMap::new();
+    for item in items {
+        match item {
+            syn::Item::Use(item) => {
+                let mut new_paths =
+                    use_paths_from_use_tree(&item.tree, &Visibility::from_syn(&item.vis));
+                if let Some(existing_paths) = paths_map.get_mut(module) {
+                    existing_paths.append(&mut new_paths);
+                } else {
+                    paths_map.insert(module.clone(), new_paths);
+                }
             }
-        })
-        .flatten()
-        .collect()
+            syn::Item::Mod(item) => {
+                if let Some((_, items)) = item.content.as_ref() {
+                    module.push_name(item.ident.to_string());
+                    let new_paths = use_paths_from_items(items, module);
+                    for (k, v) in new_paths {
+                        paths_map.insert(k, v);
+                    }
+                    module.pop();
+                }
+            }
+            _ => {}
+        }
+    }
+    paths_map
 }
