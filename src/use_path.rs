@@ -54,7 +54,7 @@ impl UsePath {
 impl Display for UsePath {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let comps: Vec<String> = self.path.iter().map(UsePathComponent::to_string).collect();
-        write!(f, "{}", comps.join("::"))
+        write!(f, "{}{}", self.vis, comps.join("::"))
     }
 }
 

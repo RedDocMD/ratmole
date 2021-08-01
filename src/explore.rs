@@ -202,7 +202,15 @@ pub fn crate_info<T: AsRef<std::path::Path>>(main_crate_root: T) -> Result<MainC
     );
 
     for pkg in &pkgs {
-        use_paths_in_dependency(pkg)?;
+        let use_paths = use_paths_in_dependency(pkg)?;
+        for (path, use_paths) in &use_paths {
+            println!("{}", path.to_string().red());
+            for use_path in use_paths {
+                if matches!(use_path.visibility(), Visibility::Public) {
+                    println!("    {}", use_path);
+                }
+            }
+        }
     }
 
     Ok(MainCrateInfo {
@@ -342,10 +350,19 @@ fn use_paths_in_target(targ: &SimpleTarget) -> Result<HashMap<Path, Vec<UsePath>
         warn!("failed to parse {}", src_path.display());
         HashMap::new()
     });
-    for (k, v) in &use_paths {
-        println!("{}: ", k.to_string().red());
-        for p in v {
-            println!("    {}", p);
+
+    let new_use_paths = use_paths_from_submodules(&Module {
+        cat: ModuleCategory::Root,
+        name: &crate_name,
+        rust_path: Path::from(vec![crate_name.clone()]),
+        path: src_path.clone(),
+        vis: Visibility::Public,
+    })?;
+    for (k, mut v) in new_use_paths {
+        if let Some(existing) = use_paths.get_mut(&k) {
+            existing.append(&mut v);
+        } else {
+            use_paths.insert(k, v);
         }
     }
     Ok(use_paths)
@@ -368,10 +385,7 @@ fn structs_from_submodules(module: &Module<'_>) -> Result<(Vec<Struct>, Vec<Modu
                 things_from_file(&sub_mod.path, sub_mod.rust_path.clone(), structs_from_items)
                     .unwrap()
                     .unwrap_or_else(|| {
-                        warn!(
-                            "failed to parse {}",
-                            sub_mod.path.as_os_str().to_str().unwrap()
-                        );
+                        warn!("failed to parse {}", sub_mod.path.display());
                         (vec![], vec![])
                     });
             sub_mod_info.add_children(child_infos);
@@ -385,6 +399,44 @@ fn structs_from_submodules(module: &Module<'_>) -> Result<(Vec<Struct>, Vec<Modu
 
     let (vec_structs, infos): (Vec<_>, Vec<_>) = things.into_iter().unzip();
     Ok((vec_structs.into_iter().flatten().collect(), infos))
+}
+
+fn use_paths_from_submodules(module: &Module<'_>) -> Result<HashMap<Path, Vec<UsePath>>> {
+    let empty_mods = match empty_modules_from_file(&module.path)? {
+        Some(mods) => mods,
+        None => return Ok(HashMap::new()),
+    };
+
+    let sub_mods = module.direct_submodules(&empty_mods)?;
+
+    let mut things = Vec::new();
+    sub_mods
+        .par_iter()
+        .map(|sub_mod| {
+            things_from_file(
+                &sub_mod.path,
+                sub_mod.rust_path.clone(),
+                use_paths_from_items,
+            )
+            .unwrap()
+            .unwrap_or_else(|| {
+                warn!("failed to parse {}", sub_mod.path.display());
+                HashMap::new()
+            })
+        })
+        .collect_into_vec(&mut things);
+
+    let mut use_paths_map: HashMap<Path, Vec<UsePath>> = HashMap::new();
+    for thing in things {
+        for (k, mut v) in thing {
+            if let Some(existing) = use_paths_map.get_mut(&k) {
+                existing.append(&mut v);
+            } else {
+                use_paths_map.insert(k, v);
+            }
+        }
+    }
+    Ok(use_paths_map)
 }
 
 #[derive(Debug)]
