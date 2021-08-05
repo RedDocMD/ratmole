@@ -1,11 +1,13 @@
+use lazy_static::lazy_static;
+use regex::Regex;
 use std::{
     collections::HashMap,
     fmt::{self, Display, Formatter},
 };
 
-use crate::structs::{Path, Visibility};
+use crate::structs::{Path, PathComponent, Visibility};
 
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UsePathComponent {
     Name(String),
     Rename(String, String),
@@ -32,6 +34,7 @@ impl Display for UsePathComponent {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UsePath {
     path: Vec<UsePathComponent>,
     vis: Visibility,
@@ -49,12 +52,68 @@ impl UsePath {
     pub fn visibility(&self) -> &Visibility {
         &self.vis
     }
+
+    // Given a use_path self belonging to module,
+    // this method scans self for special path components
+    // crate, self and super. (These are special because they
+    // module in a non-sequential fashion).
+    // This method removes the components from use_path and
+    // returns a new Path from which resoulution must start.
+    pub fn delocalize(&mut self, module: &Path) -> Path {
+        let mut new_path = Vec::new();
+        let mut new_mod: Vec<PathComponent> = module.components().iter().cloned().collect();
+        for comp in &self.path[0..self.path.len() - 1] {
+            if let UsePathComponent::Name(name) = comp {
+                if name == "super" {
+                    new_mod.pop();
+                } else if name == "crate" {
+                    new_mod.clear();
+                    new_mod.push(module.components()[0].clone());
+                } else if name == "self" {
+                    // Do nothing
+                } else {
+                    new_path.push(UsePathComponent::Name(name.clone()));
+                }
+            } else {
+                panic!("Invalid use path {}", self);
+            }
+        }
+        new_path.push(self.path.pop().unwrap());
+        self.path = new_path;
+        Path::new(new_mod)
+    }
 }
 
 impl Display for UsePath {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let comps: Vec<String> = self.path.iter().map(UsePathComponent::to_string).collect();
         write!(f, "{}{}", self.vis, comps.join("::"))
+    }
+}
+
+impl From<Vec<&'static str>> for UsePath {
+    fn from(comps: Vec<&'static str>) -> Self {
+        lazy_static! {
+            static ref RENAME_REG: Regex = Regex::new(r"([\w\d_]+) as ([\w\d_]+)").unwrap();
+        }
+        let comps = comps
+            .into_iter()
+            .map(|item| {
+                if item == "*" {
+                    UsePathComponent::Glob
+                } else if let Some(captures) = RENAME_REG.captures(item) {
+                    let from = String::from(&captures[1]);
+                    let to = String::from(&captures[2]);
+                    UsePathComponent::Rename(from, to)
+                } else {
+                    UsePathComponent::Name(String::from(item))
+                }
+            })
+            .collect();
+        Self {
+            path: comps,
+            vis: Visibility::Public,
+        }
     }
 }
 
@@ -119,4 +178,39 @@ pub fn use_paths_from_items(items: &[syn::Item], module: &mut Path) -> HashMap<P
         }
     }
     paths_map
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::structs::*;
+
+    #[test]
+    fn test_delocalize() {
+        let module = Path::from(vec!["rand", "foo", "bar", "baz"]);
+
+        let mut path = UsePath::from(vec!["self", "super", "Help"]);
+        let new_mod = Path::from(vec!["rand", "foo", "bar"]);
+        let new_path = UsePath::from(vec!["Help"]);
+        assert_eq!(path.delocalize(&module), new_mod);
+        assert_eq!(path, new_path);
+
+        let mut path = UsePath::from(vec!["super", "super", "Help"]);
+        let new_mod = Path::from(vec!["rand", "foo"]);
+        let new_path = UsePath::from(vec!["Help"]);
+        assert_eq!(path.delocalize(&module), new_mod);
+        assert_eq!(path, new_path);
+
+        let mut path = UsePath::from(vec!["super", "cat", "Help"]);
+        let new_mod = Path::from(vec!["rand", "foo", "bar"]);
+        let new_path = UsePath::from(vec!["cat", "Help"]);
+        assert_eq!(path.delocalize(&module), new_mod);
+        assert_eq!(path, new_path);
+
+        let mut path = UsePath::from(vec!["crate", "cat", "Help"]);
+        let new_mod = Path::from(vec!["rand"]);
+        let new_path = UsePath::from(vec!["cat", "Help"]);
+        assert_eq!(path.delocalize(&module), new_mod);
+        assert_eq!(path, new_path);
+    }
 }

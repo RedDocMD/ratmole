@@ -2,12 +2,13 @@ use crate::{
     cargo::{download_dependency, parse_cargo},
     error::{Error, Result},
     structs::{structs_from_items, ModuleInfo, Path, Struct, Visibility},
+    tree::StructTree,
     use_path::{use_paths_from_items, UsePath},
 };
 use cargo::{
     core::{
-        dependency::DepKind, manifest::TargetSourcePath, Package, Source, SourceId, Target,
-        TargetKind,
+        dependency::DepKind, manifest::TargetSourcePath, Edition, Package, Source, SourceId,
+        Target, TargetKind,
     },
     sources::{GitSource, PathSource, SourceConfigMap},
     Config,
@@ -49,15 +50,18 @@ where
 struct SimplePackage {
     targets: Vec<SimpleTarget>,
     name: String,
+    edition: Edition,
 }
 
 impl SimplePackage {
     fn from_cargo(pkg: Package) -> Self {
         let targets: Vec<SimpleTarget> =
             pkg.targets().iter().map(SimpleTarget::from_cargo).collect();
+        let manifest = pkg.manifest();
         Self {
             targets,
             name: String::from(pkg.name().as_str()),
+            edition: manifest.edition(),
         }
     }
 
@@ -201,13 +205,26 @@ pub fn crate_info<T: AsRef<std::path::Path>>(main_crate_root: T) -> Result<MainC
             .map(|info| (String::from(info.name()), info)),
     );
 
+    let tree = StructTree::new(&structs);
+    println!("{}", tree);
+
     for pkg in &pkgs {
         let use_paths = use_paths_in_dependency(pkg)?;
         for (path, use_paths) in &use_paths {
             println!("{}", path.to_string().red());
             for use_path in use_paths {
                 if matches!(use_path.visibility(), Visibility::Public) {
-                    println!("    {}", use_path);
+                    let mut use_path = use_path.clone();
+                    debug!("Before delocalize: {} in {}", use_path, path);
+                    let new_path = use_path.delocalize(path);
+                    debug!("After delocalize: {} in {}", use_path, new_path);
+                    let s = if pkg.edition >= Edition::Edition2018 {
+                        tree.resolve_use_path(&use_path, &new_path)
+                    } else {
+                        tree.resolve_use_path(&use_path, &Path::from(vec![pkg.name().clone()]))
+                    };
+                    let sstr: Vec<String> = s.iter().map(Struct::to_string).collect();
+                    println!("    {} => {}", use_path, sstr.join(", "));
                 }
             }
         }

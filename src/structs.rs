@@ -82,7 +82,17 @@ impl From<String> for PathComponent {
     }
 }
 
+impl From<&'static str> for PathComponent {
+    fn from(comp: &'static str) -> Self {
+        PathComponent::from(String::from(comp))
+    }
+}
+
 impl Path {
+    pub fn new(comps: Vec<PathComponent>) -> Self {
+        Self(comps)
+    }
+
     pub fn push_name(&mut self, comp: String) {
         self.0.push(PathComponent::Name(comp));
     }
@@ -102,6 +112,12 @@ impl From<Vec<String>> for Path {
     }
 }
 
+impl From<Vec<&'static str>> for Path {
+    fn from(comps: Vec<&'static str>) -> Self {
+        Self(comps.into_iter().map(PathComponent::from).collect())
+    }
+}
+
 impl Display for Path {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let comps: Vec<String> = self.0.iter().map(PathComponent::to_string).collect();
@@ -109,7 +125,7 @@ impl Display for Path {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Visibility {
     Public,
     Crate,

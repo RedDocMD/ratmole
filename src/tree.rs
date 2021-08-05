@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     printer::TreePrintable,
-    structs::{PathComponent, Struct},
+    structs::{Path, PathComponent, Struct},
     use_path::{UsePath, UsePathComponent},
 };
 
@@ -31,14 +31,21 @@ impl PathNode<'_> {
     fn resolve_use_path(&self, use_path: &[UsePathComponent]) -> Vec<Struct> {
         if use_path.len() > 1 {
             let first = use_path[0].as_name().unwrap();
-            let child = &self.child_mods[first];
+            let child = match self.child_mods.get(first) {
+                Some(child) => child,
+                None => return Vec::new(),
+            };
             child.resolve_use_path(&use_path[1..])
         } else {
             match &use_path[0] {
-                UsePathComponent::Name(name) => vec![self.child_structs[name].clone()],
-                UsePathComponent::Rename(name, rename) => {
-                    vec![self.child_structs[name].renamed(rename)]
-                }
+                UsePathComponent::Name(name) => match self.child_structs.get(name) {
+                    Some(child) => vec![(*child).clone()],
+                    None => vec![],
+                },
+                UsePathComponent::Rename(name, rename) => match self.child_structs.get(name) {
+                    Some(child) => vec![child.renamed(rename)],
+                    None => vec![],
+                },
                 UsePathComponent::Glob => {
                     self.child_structs.values().map(|s| (*s).clone()).collect()
                 }
@@ -81,8 +88,15 @@ impl<'s> StructTree<'s> {
         node_add_struct(&mut self.root, &comps, st);
     }
 
-    pub fn resolve_use_path(&self, use_path: &UsePath) -> Vec<Struct> {
-        let mut structs = self.root.resolve_use_path(use_path.components());
+    pub fn resolve_use_path(&self, use_path: &UsePath, start_mod: &Path) -> Vec<Struct> {
+        let mut node = &self.root;
+        for comp in start_mod.components() {
+            node = match node.child_mods.get(&comp.to_string()) {
+                Some(node) => node,
+                None => return Vec::new(),
+            };
+        }
+        let mut structs = node.resolve_use_path(use_path.components());
         for s in &mut structs {
             s.set_visibility(use_path.visibility().clone());
         }

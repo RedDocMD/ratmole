@@ -17,6 +17,8 @@ semver = "1.0.3"
 cargo = "0.54.0"
 anyhow = "1.0.42"
 rayon = "1.5.1"
+regex = "1.5.4"
+lazy_static = "1.4"
 
 [dev-dependencies]
 tokio = { version = "1.8.1", features = ["rt-multi-thread", "macros"] }
