@@ -84,13 +84,13 @@ fn repo_update<'repo, P: AsRef<StdPath>>(repo_dir: P) -> Result<()> {
     // Update submodules
     let backtrace_submod_output = Command::new(GIT_COMMAND)
         .current_dir(&repo_dir)
-        .args(&["submodule", "update", "--remote", "library/backtrace"])
+        .args(&["submodule", "update", "library/backtrace"])
         .output()
         .expect("Failed to git submodule init");
     assert!(backtrace_submod_output.status.success());
     let stdarch_submod_output = Command::new(GIT_COMMAND)
         .current_dir(&repo_dir)
-        .args(&["submodule", "update", "--remote", "library/stdarch"])
+        .args(&["submodule", "update", "library/stdarch"])
         .output()
         .expect("Failed to git submodule init");
     assert!(stdarch_submod_output.status.success());
@@ -138,37 +138,48 @@ fn repo_checkout_branch<P: AsRef<StdPath>>(repo_dir: P, branch_name: &str) -> Re
     Ok(())
 }
 
-pub fn init_std_repo() -> Result<PathBuf> {
-    let mut repo_dir =
-        home::home_dir().ok_or_else(|| Error::HomeDirNotFound("home dir not found"))?;
-    repo_dir.push(BASE_DIRNAME);
-    repo_dir.push(REPO_DIRNAME);
-
-    if !repo_dir.exists() {
-        repo_clone()?;
-    }
-
-    repo_checkout_branch(&repo_dir, MAIN_BRANCH)?;
-    repo_update(&repo_dir)?;
-
-    let repo = Repository::open(&repo_dir)?;
-    let latest_tag = repo_get_latest_tag(&repo)?;
-    repo_checkout_tag(&repo_dir, latest_tag.name().unwrap())?;
-
-    let mut lib_path = repo_dir;
-    lib_path.push("library");
-    lib_path.push("std");
-    lib_path.push("src");
-    lib_path.push("lib.rs");
-
-    Ok(lib_path)
+pub struct StdRepo {
+    repo_path: PathBuf,
+    src_path: PathBuf,
 }
 
-pub fn restore_std_repo() -> Result<()> {
-    let mut repo_dir =
-        home::home_dir().ok_or_else(|| Error::HomeDirNotFound("home dir not found"))?;
-    repo_dir.push(BASE_DIRNAME);
-    repo_dir.push(REPO_DIRNAME);
+impl StdRepo {
+    pub fn new() -> Result<Self> {
+        let mut repo_dir =
+            home::home_dir().ok_or_else(|| Error::HomeDirNotFound("home dir not found"))?;
+        repo_dir.push(BASE_DIRNAME);
+        repo_dir.push(REPO_DIRNAME);
 
-    repo_checkout_branch(&repo_dir, MAIN_BRANCH)
+        if !repo_dir.exists() {
+            repo_clone()?;
+        }
+
+        repo_checkout_branch(&repo_dir, MAIN_BRANCH)?;
+        repo_update(&repo_dir)?;
+
+        let repo = Repository::open(&repo_dir)?;
+        let latest_tag = repo_get_latest_tag(&repo)?;
+        repo_checkout_tag(&repo_dir, latest_tag.name().unwrap())?;
+
+        let mut lib_path = repo_dir.clone();
+        lib_path.push("library");
+        lib_path.push("std");
+        lib_path.push("src");
+        lib_path.push("lib.rs");
+
+        Ok(Self {
+            repo_path: repo_dir,
+            src_path: lib_path,
+        })
+    }
+
+    pub fn lib_path(&self) -> &PathBuf {
+        &self.src_path
+    }
+}
+
+impl Drop for StdRepo {
+    fn drop(&mut self) {
+        repo_checkout_branch(&self.repo_path, MAIN_BRANCH).unwrap();
+    }
 }

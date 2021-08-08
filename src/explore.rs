@@ -1,8 +1,7 @@
 use crate::{
     cargo::{download_dependency, parse_cargo},
     error::{Error, Result},
-    init_std_repo,
-    stdlib::restore_std_repo,
+    stdlib::StdRepo,
     structs::{structs_from_items, ModuleInfo, Path, Struct, Visibility},
     tree::StructTree,
     use_path::{use_paths_from_items, UsePath},
@@ -205,8 +204,8 @@ pub fn crate_info<T: AsRef<std::path::Path>>(main_crate_root: T) -> Result<MainC
     structs.append(&mut main_structs);
 
     let mut pkgs: Vec<SimplePackage> = pkgs.into_iter().map(SimplePackage::from_cargo).collect();
-    let std_src_path = init_std_repo()?;
-    pkgs.push(simple_package_for_std(std_src_path));
+    let std_repo = StdRepo::new()?;
+    pkgs.push(simple_package_for_std(std_repo.lib_path().clone()));
 
     let mut things = Vec::new();
     pkgs.par_iter()
@@ -247,8 +246,6 @@ pub fn crate_info<T: AsRef<std::path::Path>>(main_crate_root: T) -> Result<MainC
             }
         }
     }
-
-    restore_std_repo()?;
 
     Ok(MainCrateInfo {
         structs,
