@@ -5,7 +5,7 @@ use std::{
     fmt::{self, Display, Formatter},
 };
 
-use crate::structs::{Path, PathComponent, Visibility};
+use crate::structs::{Path, Visibility};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UsePathComponent {
@@ -61,7 +61,7 @@ impl UsePath {
     // returns a new Path from which resoulution must start.
     pub fn delocalize(&mut self, module: &Path) -> Path {
         let mut new_path = Vec::new();
-        let mut new_mod: Vec<PathComponent> = module.components().iter().cloned().collect();
+        let mut new_mod = module.components().to_vec();
         for comp in &self.path[0..self.path.len() - 1] {
             if let UsePathComponent::Name(name) = comp {
                 if name == "super" {

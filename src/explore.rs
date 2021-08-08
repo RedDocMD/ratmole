@@ -223,7 +223,7 @@ pub fn crate_info<T: AsRef<std::path::Path>>(main_crate_root: T) -> Result<MainC
                     } else {
                         tree.resolve_use_path(&use_path, &Path::from(vec![pkg.name().clone()]))
                     };
-                    let sstr: Vec<String> = s.iter().map(Struct::to_string).collect();
+                    let sstr: Vec<String> = s.into_iter().map(Struct::to_string).collect();
                     println!("    {} => {}", use_path, sstr.join(", "));
                 }
             }
@@ -259,7 +259,7 @@ fn download_dependencies(pkg: &Package, config: &Config) -> Result<Vec<Package>>
             let path = dep_src_id
                 .url()
                 .to_file_path()
-                .expect(&format!("path of {} must be valid", dep.name_in_toml()));
+                .unwrap_or_else(|_| panic!("path of {} must be valid", dep.name_in_toml()));
             let mut src = PathSource::new(&path, dep_src_id, &config);
             src.update()?;
             dep_pkgs.push(download_dependency(dep, &mut src, &config)?);
