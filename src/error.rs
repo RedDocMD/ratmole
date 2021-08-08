@@ -34,6 +34,17 @@ quick_error! {
         InvalidCrate(msg: String) {
             display("{}", msg)
         }
+        PathAlreadyExists(msg: String) {
+            display("{}", msg)
+        }
+        HomeDirNotFound(msg: &'static str) {
+            display("{}", msg)
+        }
+        GitError(err: git2::Error) {
+            from()
+            source(err)
+            display("Git error: {}", err)
+        }
     }
 }
 

@@ -1,14 +1,16 @@
 use crate::{
     cargo::{download_dependency, parse_cargo},
     error::{Error, Result},
+    init_std_repo,
+    stdlib::restore_std_repo,
     structs::{structs_from_items, ModuleInfo, Path, Struct, Visibility},
     tree::StructTree,
     use_path::{use_paths_from_items, UsePath},
 };
 use cargo::{
     core::{
-        dependency::DepKind, manifest::TargetSourcePath, Edition, Package, Source, SourceId,
-        Target, TargetKind,
+        compiler::CrateType, dependency::DepKind, manifest::TargetSourcePath, Edition, Package,
+        Source, SourceId, Target, TargetKind,
     },
     sources::{GitSource, PathSource, SourceConfigMap},
     Config,
@@ -175,6 +177,19 @@ impl Display for SimpleTargetKind {
     }
 }
 
+fn simple_package_for_std(lib_path: PathBuf) -> SimplePackage {
+    let lib_target = SimpleTarget {
+        crate_name: String::from("std"),
+        kind: TargetKind::Lib(vec![CrateType::Lib]),
+        src_path: TargetSourcePath::Path(lib_path),
+    };
+    SimplePackage {
+        targets: vec![lib_target],
+        name: String::from("std"),
+        edition: Edition::Edition2018,
+    }
+}
+
 pub fn crate_info<T: AsRef<std::path::Path>>(main_crate_root: T) -> Result<MainCrateInfo> {
     let config = Config::default()?;
     let (manifest, manifest_path) = parse_cargo(&main_crate_root, &config)?;
@@ -189,7 +204,10 @@ pub fn crate_info<T: AsRef<std::path::Path>>(main_crate_root: T) -> Result<MainC
     let (mut main_structs, main_mod_info) = structs_in_main_crate(&main_pkg)?;
     structs.append(&mut main_structs);
 
-    let pkgs: Vec<SimplePackage> = pkgs.into_iter().map(SimplePackage::from_cargo).collect();
+    let mut pkgs: Vec<SimplePackage> = pkgs.into_iter().map(SimplePackage::from_cargo).collect();
+    let std_src_path = init_std_repo()?;
+    pkgs.push(simple_package_for_std(std_src_path));
+
     let mut things = Vec::new();
     pkgs.par_iter()
         .map(|pkg| {
@@ -229,6 +247,8 @@ pub fn crate_info<T: AsRef<std::path::Path>>(main_crate_root: T) -> Result<MainC
             }
         }
     }
+
+    restore_std_repo()?;
 
     Ok(MainCrateInfo {
         structs,
