@@ -240,7 +240,7 @@ pub fn crate_info<T: AsRef<std::path::Path>>(main_crate_root: T) -> Result<MainC
                     } else {
                         tree.resolve_use_path(&use_path, &Path::from(vec![pkg.name().clone()]))
                     };
-                    let sstr: Vec<String> = s.into_iter().map(Struct::to_string).collect();
+                    let sstr: Vec<String> = s.into_iter().map(|item| item.to_string()).collect();
                     println!("    {} => {}", use_path, sstr.join(", "));
                 }
             }

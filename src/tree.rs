@@ -28,24 +28,67 @@ impl PathNode<'_> {
         }
     }
 
-    fn resolve_use_path(&self, use_path: &[UsePathComponent]) -> Vec<&Struct> {
+    fn resolve_use_path<'item>(
+        &'item self,
+        use_path: &[UsePathComponent],
+        mod_path: &mut Vec<PathComponent>,
+    ) -> Vec<ResolvedUsePath<'item>> {
         if use_path.len() > 1 {
             let first = use_path[0].as_name().unwrap();
             let child = match self.child_mods.get(first) {
                 Some(child) => child,
                 None => return Vec::new(),
             };
-            child.resolve_use_path(&use_path[1..])
+            mod_path.push(PathComponent::Name(first.clone()));
+            let things = child.resolve_use_path(&use_path[1..], mod_path);
+            mod_path.pop();
+            things
         } else {
-            match &use_path[0] {
-                UsePathComponent::Name(name) => {
-                    self.child_structs.get(name).map_or(vec![], |s| vec![*s])
+            fn resolve_name<'item>(
+                node: &'item PathNode<'_>,
+                name: &String,
+                mod_path: &Vec<PathComponent>,
+            ) -> Vec<ResolvedUsePath<'item>> {
+                if node.child_structs.contains_key(name) {
+                    vec![ResolvedUsePath::Struct(&node.child_structs[name])]
+                } else if node.child_mods.contains_key(name) {
+                    let mut new_path_comps = mod_path.clone();
+                    new_path_comps.push(PathComponent::Name(name.clone()));
+                    vec![ResolvedUsePath::Module(Path::new(new_path_comps))]
+                } else {
+                    Vec::new()
                 }
-                UsePathComponent::Rename(name, _) => {
-                    self.child_structs.get(name).map_or(vec![], |s| vec![*s])
-                }
-                UsePathComponent::Glob => self.child_structs.values().copied().collect(),
             }
+
+            match &use_path[0] {
+                UsePathComponent::Name(name) => resolve_name(self, name, mod_path),
+                UsePathComponent::Rename(name, _) => resolve_name(self, name, mod_path),
+                UsePathComponent::Glob => self
+                    .child_structs
+                    .values()
+                    .copied()
+                    .map(|item| ResolvedUsePath::Struct(item))
+                    .chain(self.child_mods.keys().map(|name| {
+                        let mut new_path_comps = mod_path.clone();
+                        new_path_comps.push(PathComponent::Name(name.clone()));
+                        ResolvedUsePath::Module(Path::new(new_path_comps))
+                    }))
+                    .collect(),
+            }
+        }
+    }
+}
+
+pub enum ResolvedUsePath<'item> {
+    Struct(&'item Struct),
+    Module(Path),
+}
+
+impl Display for ResolvedUsePath<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            ResolvedUsePath::Struct(s) => write!(f, "{}", s),
+            ResolvedUsePath::Module(p) => write!(f, "{}", p),
         }
     }
 }
@@ -84,7 +127,11 @@ impl<'s> StructTree<'s> {
         node_add_struct(&mut self.root, &comps, st);
     }
 
-    pub fn resolve_use_path(&self, use_path: &UsePath, start_mod: &Path) -> Vec<&Struct> {
+    pub fn resolve_use_path<'item>(
+        &'item self,
+        use_path: &UsePath,
+        start_mod: &Path,
+    ) -> Vec<ResolvedUsePath<'item>> {
         let mut node = &self.root;
         for comp in start_mod.components() {
             node = match node.child_mods.get(&comp.to_string()) {
@@ -92,7 +139,7 @@ impl<'s> StructTree<'s> {
                 None => return Vec::new(),
             };
         }
-        node.resolve_use_path(use_path.components())
+        node.resolve_use_path(use_path.components(), &mut start_mod.components().to_vec())
     }
 }
 
