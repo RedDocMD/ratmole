@@ -19,7 +19,7 @@ fn main() -> Result<(), Error> {
 
     let args: Vec<String> = env::args().collect();
     let crate_path = &args[1];
-    let info = crate_info(crate_path)?;
+    let info = crate_info(crate_path, false)?;
     println!("{}", info);
     Ok(())
 }

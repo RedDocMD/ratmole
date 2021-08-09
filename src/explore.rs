@@ -22,7 +22,7 @@ use std::{
     fmt::{self, Display, Formatter},
     fs::File,
     io::Read,
-    path::PathBuf,
+    path::{Path as StdPath, PathBuf},
 };
 use syn::{parenthesized, parse::Parse, token, Item, LitStr, Token};
 
@@ -32,7 +32,7 @@ fn things_from_file<T, F, R>(
     f: F,
 ) -> Result<Option<R>>
 where
-    T: AsRef<std::path::Path>,
+    T: AsRef<StdPath>,
     F: Fn(&[syn::Item], &mut Path) -> R,
 {
     debug!("{}", file_path.as_ref().as_os_str().to_str().unwrap());
@@ -189,7 +189,7 @@ fn simple_package_for_std(lib_path: PathBuf) -> SimplePackage {
     }
 }
 
-pub fn crate_info<T: AsRef<std::path::Path>>(main_crate_root: T) -> Result<MainCrateInfo> {
+pub fn crate_info<T: AsRef<StdPath>>(main_crate_root: T, is_std: bool) -> Result<MainCrateInfo> {
     let config = Config::default()?;
     let (manifest, manifest_path) = parse_cargo(&main_crate_root, &config)?;
     let main_cargo_pkg = Package::new(manifest, &manifest_path);
@@ -204,8 +204,12 @@ pub fn crate_info<T: AsRef<std::path::Path>>(main_crate_root: T) -> Result<MainC
     structs.append(&mut main_structs);
 
     let mut pkgs: Vec<SimplePackage> = pkgs.into_iter().map(SimplePackage::from_cargo).collect();
-    let std_repo = StdRepo::new()?;
-    pkgs.push(simple_package_for_std(std_repo.lib_path().clone()));
+    if !is_std {
+        let std_repo = StdRepo::new()?;
+        let std_crate_info = crate_info(std_repo.crate_path(), true)?;
+        println!("{}", std_crate_info);
+    }
+    // pkgs.push(simple_package_for_std(std_repo.lib_path().clone()));
 
     let mut things = Vec::new();
     pkgs.par_iter()
@@ -225,6 +229,9 @@ pub fn crate_info<T: AsRef<std::path::Path>>(main_crate_root: T) -> Result<MainC
     let tree = StructTree::new(&structs);
     println!("{}", tree);
 
+    if is_std {
+        pkgs.push(main_pkg);
+    }
     for pkg in &pkgs {
         let use_paths = use_paths_in_dependency(pkg)?;
         for (path, use_paths) in &use_paths {
@@ -645,7 +652,7 @@ impl Parse for CfgAttrWithPath {
     }
 }
 
-fn empty_modules_from_file<T: AsRef<std::path::Path>>(path: T) -> Result<Option<Vec<ASTModule>>> {
+fn empty_modules_from_file<T: AsRef<StdPath>>(path: T) -> Result<Option<Vec<ASTModule>>> {
     let mut file = File::open(path.as_ref())?;
     let mut content = String::new();
     file.read_to_string(&mut content)?;
@@ -656,6 +663,10 @@ fn empty_modules_from_file<T: AsRef<std::path::Path>>(path: T) -> Result<Option<
                 if let Item::Mod(module) = item {
                     if module.content.is_none() {
                         let name = module.ident.to_string();
+                        // FIXME: This is a hack!
+                        if name == "r#try" {
+                            continue;
+                        }
                         let mut mod_path = None;
                         for attr in &module.attrs {
                             let seg = &attr.path.segments;

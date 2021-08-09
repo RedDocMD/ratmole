@@ -140,7 +140,8 @@ fn repo_checkout_branch<P: AsRef<StdPath>>(repo_dir: P, branch_name: &str) -> Re
 
 pub struct StdRepo {
     repo_path: PathBuf,
-    src_path: PathBuf,
+    lib_path: PathBuf,
+    crate_path: PathBuf,
 }
 
 impl StdRepo {
@@ -167,14 +168,23 @@ impl StdRepo {
         lib_path.push("src");
         lib_path.push("lib.rs");
 
+        let mut crate_path = repo_dir.clone();
+        crate_path.push("library");
+        crate_path.push("std");
+
         Ok(Self {
             repo_path: repo_dir,
-            src_path: lib_path,
+            lib_path,
+            crate_path,
         })
     }
 
     pub fn lib_path(&self) -> &PathBuf {
-        &self.src_path
+        &self.lib_path
+    }
+
+    pub fn crate_path(&self) -> &PathBuf {
+        &self.crate_path
     }
 }
 
