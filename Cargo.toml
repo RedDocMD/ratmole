@@ -19,7 +19,7 @@ anyhow = "1.0.42"
 rayon = "1.5.1"
 regex = "1.5.4"
 lazy_static = "1.4"
-git2 = "0.13"
+git2 = "0.13.23"
 home = "0.5.3"
 
 [dev-dependencies]
