@@ -48,7 +48,7 @@ fn repo_update_submodules(repo: &Repository) -> Result<()> {
     for submodule in &mut submodules {
         let name = submodule.path().display().to_string();
         if cloned_submodules.contains(&name.as_str()) {
-            println!("Updating submodule {}", name);
+            debug!("Updating submodule {}", name);
             submodule.update(true, None)?;
         }
     }
@@ -141,6 +141,7 @@ fn repo_get_latest_tag(repo: &Repository) -> Result<Tag> {
 
 pub struct StdRepo {
     crate_path: PathBuf,
+    lib_path: PathBuf,
     repo: Repository,
 }
 
@@ -174,11 +175,19 @@ impl StdRepo {
         crate_path.push("library");
         crate_path.push("std");
 
-        Ok(Self { crate_path, repo })
+        Ok(Self {
+            crate_path,
+            repo,
+            lib_path,
+        })
     }
 
-    pub fn crate_path(&self) -> &PathBuf {
+    pub(crate) fn crate_path(&self) -> &PathBuf {
         &self.crate_path
+    }
+
+    pub(crate) fn lib_path(&self) -> &PathBuf {
+        &self.lib_path
     }
 }
 
