@@ -20,6 +20,13 @@ fn main() -> Result<(), Error> {
     let args: Vec<String> = env::args().collect();
     let crate_path = &args[1];
     let info = crate_info(crate_path, false)?;
-    println!("{}", info);
+    let will_print = if args.len() > 2 {
+        args[2].parse().unwrap()
+    } else {
+        false
+    };
+    if will_print {
+        println!("{}", info);
+    }
     Ok(())
 }

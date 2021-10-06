@@ -3,7 +3,8 @@ use std::{
     path::{Path as StdPath, PathBuf},
 };
 
-use git2::{Commit, FetchOptions, Oid, Repository, Tag};
+use git2::{build::CheckoutBuilder, Commit, FetchOptions, ObjectType, Oid, Repository, Tag};
+use log::debug;
 
 use crate::error::{Error, Result};
 
@@ -23,6 +24,7 @@ fn init_base_dir<P: AsRef<StdPath>>(path: P) -> Result<()> {
 }
 
 const REMOTE_URL: &str = "https://github.com/rust-lang/rust";
+const REMOTE_NAME: &str = "origin";
 const BASE_DIRNAME: &str = ".ratmole";
 const REPO_DIRNAME: &str = "rust-repo";
 const MAIN_BRANCH: &str = "master";
@@ -73,46 +75,50 @@ fn repo_checkout_branch(repo: &Repository, branch_name: &str) -> Result<()> {
 }
 
 fn repo_update(repo: &Repository) -> Result<()> {
-    let mut remote = repo.find_remote("origin")?;
+    let mut remote = repo.find_remote(REMOTE_NAME)?;
     // Fetch including tags
     let mut fetch_options = FetchOptions::default();
     fetch_options.download_tags(git2::AutotagOption::All);
     remote.fetch(&[MAIN_BRANCH], Some(&mut fetch_options), None)?;
 
-    // Merge remote branch
+    // Merge remote branch (fast-forward only)
+    // Refer: https://github.com/libgit2/libgit2sharp/blob/5055fbda8bb319eba100f5e418d5beed534b83bc/LibGit2Sharp/Commands/Pull.cs#L18
     // Refer: https://github.com/libgit2/libgit2sharp/blob/5055fbda8bb319eba100f5e418d5beed534b83bc/LibGit2Sharp/Repository.cs#L1232
-    struct FetchHead {
+    #[derive(Debug)]
+    struct MergedFetchHead {
         _ref_name: String,
         remote_url: String,
         target_id: Oid,
-        _was_merged: bool,
     }
 
-    let mut fetch_heads = Vec::new();
+    let mut merged_fetch_heads = Vec::new();
     repo.fetchhead_foreach(|name, url, target, merged| {
-        fetch_heads.push(FetchHead {
-            _ref_name: name.into(),
-            remote_url: std::str::from_utf8(url).unwrap().into(),
-            target_id: *target,
-            _was_merged: merged,
-        });
+        if merged {
+            merged_fetch_heads.push(MergedFetchHead {
+                _ref_name: name.into(),
+                remote_url: std::str::from_utf8(url).unwrap().into(),
+                target_id: *target,
+            });
+        }
         true
     })?;
+    assert!(
+        merged_fetch_heads.len() == 1,
+        "expected to have one merged fetch-head after fetch"
+    );
+    for f in &merged_fetch_heads {
+        debug!("{:?}", f);
+    }
 
-    let annotated_commits: Vec<_> = fetch_heads
-        .iter()
-        .map(|fetch_head| {
-            repo.annotated_commit_from_fetchhead(
-                MAIN_BRANCH,
-                &fetch_head.remote_url,
-                &fetch_head.target_id,
-            )
-            .unwrap()
-        })
-        .collect();
+    // Refer: https://github.com/libgit2/libgit2/blob/b7bad55e4bb0a285b073ba5e02b01d3f522fc95d/examples/merge.c#L111
+    let fetch_head = &merged_fetch_heads[0];
+    let mut head = repo.head()?;
+    let target_obj = repo.find_object(fetch_head.target_id, Some(ObjectType::Commit))?;
 
-    let annotated_commits: Vec<_> = annotated_commits.iter().collect();
-    repo.merge(&annotated_commits, None, None)?;
+    // Perform fast-forward
+    repo.checkout_tree(&target_obj, Some(&mut CheckoutBuilder::default()))?;
+    head.set_target(fetch_head.target_id, "")?;
+    debug!("HEAD now points to {}", fetch_head.target_id);
 
     // Update submodules
     repo_update_submodules(repo)?;
@@ -178,6 +184,7 @@ impl StdRepo {
 
 impl Drop for StdRepo {
     fn drop(&mut self) {
+        debug!("Dropping StdRepo");
         repo_checkout_branch(&self.repo, MAIN_BRANCH).unwrap();
     }
 }
