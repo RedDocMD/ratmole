@@ -37,12 +37,9 @@ impl<T> PathNode<'_, T> {
             };
             child.resolve_use_path(&use_path[1..])
         } else {
-            fn resolve_name<'item, T>(
-                node: &'item PathNode<'_, T>,
-                name: &String,
-            ) -> Vec<&'item T> {
+            fn resolve_name<'item, T>(node: &'item PathNode<'_, T>, name: &str) -> Vec<&'item T> {
                 if node.child_items.contains_key(name) {
-                    vec![&node.child_items[name]]
+                    vec![node.child_items[name]]
                 } else {
                     Vec::new()
                 }
@@ -51,12 +48,7 @@ impl<T> PathNode<'_, T> {
             match &use_path[0] {
                 UsePathComponent::Name(name) => resolve_name(self, name),
                 UsePathComponent::Rename(name, _) => resolve_name(self, name),
-                UsePathComponent::Glob => self
-                    .child_items
-                    .values()
-                    .copied()
-                    .map(|item| item)
-                    .collect(),
+                UsePathComponent::Glob => self.child_items.values().copied().collect(),
             }
         }
     }
