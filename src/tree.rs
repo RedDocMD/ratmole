@@ -6,113 +6,83 @@ use std::{
 
 use crate::{
     printer::TreePrintable,
-    structs::{Path, PathComponent, Struct},
+    structs::{Path, PathComponent},
     use_path::{UsePath, UsePathComponent},
 };
 
 use colored::*;
 
 #[derive(Debug)]
-pub struct PathNode<'s> {
+pub struct PathNode<'s, T> {
     name: String,
-    child_mods: HashMap<String, PathNode<'s>>,
-    child_structs: HashMap<String, &'s Struct>,
+    child_mods: HashMap<String, PathNode<'s, T>>,
+    child_items: HashMap<String, &'s T>,
 }
 
-impl PathNode<'_> {
+impl<T> PathNode<'_, T> {
     fn new(name: String) -> Self {
         Self {
             name,
             child_mods: HashMap::new(),
-            child_structs: HashMap::new(),
+            child_items: HashMap::new(),
         }
     }
 
-    fn resolve_use_path<'item>(
-        &'item self,
-        use_path: &[UsePathComponent],
-        mod_path: &mut Vec<PathComponent>,
-    ) -> Vec<ResolvedUsePath<'item>> {
+    fn resolve_use_path<'item>(&'item self, use_path: &[UsePathComponent]) -> Vec<&'item T> {
         if use_path.len() > 1 {
             let first = use_path[0].as_name().unwrap();
             let child = match self.child_mods.get(first) {
                 Some(child) => child,
                 None => return Vec::new(),
             };
-            mod_path.push(PathComponent::Name(first.clone()));
-            let things = child.resolve_use_path(&use_path[1..], mod_path);
-            mod_path.pop();
-            things
+            child.resolve_use_path(&use_path[1..])
         } else {
-            fn resolve_name<'item>(
-                node: &'item PathNode<'_>,
+            fn resolve_name<'item, T>(
+                node: &'item PathNode<'_, T>,
                 name: &String,
-                mod_path: &Vec<PathComponent>,
-            ) -> Vec<ResolvedUsePath<'item>> {
-                if node.child_structs.contains_key(name) {
-                    vec![ResolvedUsePath::Struct(&node.child_structs[name])]
-                } else if node.child_mods.contains_key(name) {
-                    let mut new_path_comps = mod_path.clone();
-                    new_path_comps.push(PathComponent::Name(name.clone()));
-                    vec![ResolvedUsePath::Module(Path::new(new_path_comps))]
+            ) -> Vec<&'item T> {
+                if node.child_items.contains_key(name) {
+                    vec![&node.child_items[name]]
                 } else {
                     Vec::new()
                 }
             }
 
             match &use_path[0] {
-                UsePathComponent::Name(name) => resolve_name(self, name, mod_path),
-                UsePathComponent::Rename(name, _) => resolve_name(self, name, mod_path),
+                UsePathComponent::Name(name) => resolve_name(self, name),
+                UsePathComponent::Rename(name, _) => resolve_name(self, name),
                 UsePathComponent::Glob => self
-                    .child_structs
+                    .child_items
                     .values()
                     .copied()
-                    .map(|item| ResolvedUsePath::Struct(item))
-                    .chain(self.child_mods.keys().map(|name| {
-                        let mut new_path_comps = mod_path.clone();
-                        new_path_comps.push(PathComponent::Name(name.clone()));
-                        ResolvedUsePath::Module(Path::new(new_path_comps))
-                    }))
+                    .map(|item| item)
                     .collect(),
             }
         }
     }
 }
 
-pub enum ResolvedUsePath<'item> {
-    Struct(&'item Struct),
-    Module(Path),
-}
-
-impl Display for ResolvedUsePath<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            ResolvedUsePath::Struct(s) => write!(f, "{}", s),
-            ResolvedUsePath::Module(p) => write!(f, "{}", p),
-        }
-    }
-}
-
 #[derive(Debug)]
-pub struct StructTree<'s> {
-    structs: &'s [Struct],
-    root: PathNode<'s>,
+pub struct ItemTree<'t, T> {
+    root: PathNode<'t, T>,
 }
 
-impl<'s> StructTree<'s> {
-    pub fn new(structs: &'s [Struct]) -> Self {
+impl<'t, T> ItemTree<'t, T>
+where
+    T: TreeItem,
+{
+    pub fn new(items: &'t [T]) -> Self {
         let mut tree = Self {
-            structs,
             root: PathNode::new(String::from("<root>")),
         };
-        for st in structs {
-            tree.add_struct(st);
+        for t in items {
+            tree.add_item(t);
         }
         tree
     }
 
-    fn add_struct(&mut self, st: &'s Struct) {
-        let comps: Vec<&str> = st
+    fn add_item(&mut self, t: &'t T) {
+        let comps: Vec<&str> = t
             .module()
             .components()
             .iter()
@@ -120,18 +90,18 @@ impl<'s> StructTree<'s> {
                 if let PathComponent::Name(name) = comp {
                     name.deref()
                 } else {
-                    panic!("expected {} to have a path consisting of only names", st)
+                    panic!("expected {} to have a path consisting of only names", t)
                 }
             })
             .collect();
-        node_add_struct(&mut self.root, &comps, st);
+        node_add_item(&mut self.root, &comps, t);
     }
 
     pub fn resolve_use_path<'item>(
         &'item self,
         use_path: &UsePath,
         start_mod: &Path,
-    ) -> Vec<ResolvedUsePath<'item>> {
+    ) -> Vec<&'item T> {
         let mut node = &self.root;
         for comp in start_mod.components() {
             node = match node.child_mods.get(&comp.to_string()) {
@@ -139,37 +109,51 @@ impl<'s> StructTree<'s> {
                 None => return Vec::new(),
             };
         }
-        node.resolve_use_path(use_path.components(), &mut start_mod.components().to_vec())
+        node.resolve_use_path(use_path.components()).to_vec()
     }
 }
 
-fn node_add_struct<'s, 'c>(node: &mut PathNode<'s>, comps: &'c [&'s str], st: &'s Struct) {
+fn node_add_item<'t, 'c, T>(node: &mut PathNode<'t, T>, comps: &'c [&'t str], item: &'t T)
+where
+    T: TreeItem,
+{
     if comps.is_empty() {
-        node.child_structs.insert(String::from(st.name()), st);
+        node.child_items.insert(String::from(item.name()), item);
     } else {
         if !node.child_mods.contains_key(comps[0]) {
             let name = String::from(comps[0]);
             node.child_mods.insert(name.clone(), PathNode::new(name));
         }
         let new_node = node.child_mods.get_mut(comps[0]).unwrap();
-        node_add_struct(new_node, &comps[1..], st);
+        node_add_item(new_node, &comps[1..], item);
     }
 }
 
-impl TreePrintable for PathNode<'_> {
+impl<T> TreePrintable for PathNode<'_, T>
+where
+    T: TreeItem,
+{
     fn single_write(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{} {}", "mod".magenta(), self.name)
     }
 
     fn children(&self) -> Vec<&dyn TreePrintable> {
         let mods = self.child_mods.values().map(|x| x as &dyn TreePrintable);
-        let structs = self.child_structs.values().map(|x| x as &dyn TreePrintable);
-        mods.chain(structs).collect()
+        let items = self.child_items.values().map(|x| *x as &dyn TreePrintable);
+        mods.chain(items).collect()
     }
 }
 
-impl Display for StructTree<'_> {
+impl<T> Display for ItemTree<'_, T>
+where
+    T: TreeItem,
+{
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.root.tree_print(f)
     }
+}
+
+pub trait TreeItem: TreePrintable + Display {
+    fn name(&self) -> &str;
+    fn module(&self) -> &Path;
 }

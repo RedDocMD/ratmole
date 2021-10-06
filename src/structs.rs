@@ -5,7 +5,7 @@ use std::{
     fmt::{self, Display, Formatter},
 };
 
-use crate::printer::TreePrintable;
+use crate::{printer::TreePrintable, tree::TreeItem};
 
 #[derive(Debug, Clone)]
 pub struct Struct {
@@ -32,12 +32,12 @@ impl Display for Struct {
     }
 }
 
-impl Struct {
-    pub fn module(&self) -> &Path {
+impl TreeItem for Struct {
+    fn module(&self) -> &Path {
         &self.module
     }
 
-    pub fn name(&self) -> &str {
+    fn name(&self) -> &str {
         &self.name
     }
 }
@@ -276,7 +276,7 @@ impl Display for ModuleInfo {
     }
 }
 
-impl TreePrintable for &Struct {
+impl TreePrintable for Struct {
     fn single_write(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{} {}", "struct".red(), self.name)
     }
