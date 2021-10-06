@@ -7,6 +7,8 @@ use std::{
 
 use crate::{printer::TreePrintable, tree::TreeItem};
 
+use super::module::Module;
+
 #[derive(Debug, Clone)]
 pub struct Struct {
     name: String,
@@ -103,6 +105,10 @@ impl Path {
 
     pub(crate) fn pop(&mut self) {
         self.0.pop();
+    }
+
+    pub fn parent(&self) -> Path {
+        Self(self.0[..self.0.len() - 1].to_vec())
     }
 }
 
@@ -255,6 +261,29 @@ impl ModuleInfo {
             self.add_child_mod(child);
         }
     }
+
+    pub fn modules(&self) -> Vec<Module> {
+        module_names(self, &mut Vec::new())
+            .iter()
+            .map(|names| Module::new(names))
+            .collect()
+    }
+}
+
+fn module_names(current_info: &ModuleInfo, parent_names: &mut Vec<String>) -> Vec<Vec<String>> {
+    parent_names.push(current_info.name.clone());
+    let names = if current_info.children.is_empty() {
+        vec![parent_names.clone()]
+    } else {
+        current_info
+            .children
+            .values()
+            .map(|info| module_names(info, parent_names))
+            .flatten()
+            .collect()
+    };
+    parent_names.pop();
+    names
 }
 
 impl TreePrintable for ModuleInfo {
