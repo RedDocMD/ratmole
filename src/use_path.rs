@@ -5,7 +5,7 @@ use std::{
     fmt::{self, Display, Formatter},
 };
 
-use crate::structs::{Path, Visibility};
+use crate::item::structs::{Path, Visibility};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UsePathComponent {
@@ -183,7 +183,7 @@ pub fn use_paths_from_items(items: &[syn::Item], module: &mut Path) -> HashMap<P
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::structs::*;
+    use crate::item::structs::*;
 
     #[test]
     fn test_delocalize() {

@@ -5,8 +5,8 @@ use std::{
 };
 
 use crate::{
+    item::structs::{Path, PathComponent},
     printer::TreePrintable,
-    structs::{Path, PathComponent},
     use_path::{UsePath, UsePathComponent},
 };
 
