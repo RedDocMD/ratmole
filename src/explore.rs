@@ -282,10 +282,12 @@ pub fn std_lib_info() -> Result<()> {
 
     let struct_tree = ItemTree::new(&structs);
     println!("STRUCT-TREE: \n{}", struct_tree);
-    let mut modules = Vec::new();
-    for mod_info in mod_info.values().chain(dep_mod_info.values()) {
-        modules.append(&mut mod_info.modules());
-    }
+    let modules: Vec<_> = mod_info
+        .values()
+        .chain(dep_mod_info.values())
+        .map(ModuleInfo::modules)
+        .flatten()
+        .collect();
     let module_tree = ItemTree::new(&modules);
     println!("MODULE-TREE: \n{}", module_tree);
 

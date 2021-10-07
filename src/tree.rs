@@ -82,7 +82,10 @@ where
                 if let PathComponent::Name(name) = comp {
                     name.deref()
                 } else {
-                    panic!("expected {} to have a path consisting of only names", t)
+                    panic!(
+                        "expected {} to have a path consisting of only names",
+                        t.name()
+                    )
                 }
             })
             .collect();
@@ -123,7 +126,7 @@ where
 
 impl<T> TreePrintable for PathNode<'_, T>
 where
-    T: TreeItem,
+    T: TreePrintable,
 {
     fn single_write(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{} {}", "mod".magenta(), self.name)
@@ -138,14 +141,14 @@ where
 
 impl<T> Display for ItemTree<'_, T>
 where
-    T: TreeItem,
+    T: TreePrintable,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.root.tree_print(f)
     }
 }
 
-pub trait TreeItem: TreePrintable + Display {
+pub trait TreeItem {
     fn name(&self) -> &str;
     fn module(&self) -> &Path;
 }
