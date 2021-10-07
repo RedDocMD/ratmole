@@ -1,7 +1,10 @@
 use crate::{
     cargo::{download_dependency, parse_cargo},
     error::{Error, Result},
-    item::structs::{structs_from_items, ModuleInfo, Path, Struct, Visibility},
+    item::{
+        extern_crate::{extern_crates_from_items, ExternCrate},
+        structs::{structs_from_items, ModuleInfo, Path, Struct, Visibility},
+    },
     stdlib::StdRepo,
     tree::ItemTree,
     use_path::{use_paths_from_items, UsePath},
@@ -262,7 +265,7 @@ pub fn std_lib_info() -> Result<()> {
 
     let std_pkg = SimplePackage::from_cargo(std_pkg);
     let (mut structs, mod_info) = structs_in_main_crate(&std_pkg)?;
-    let pkgs: Vec<SimplePackage> = pkgs.into_iter().map(SimplePackage::from_cargo).collect();
+    let pkgs: Vec<_> = pkgs.into_iter().map(SimplePackage::from_cargo).collect();
 
     let mut things = Vec::new();
     let mut dep_mod_info = HashMap::new();
@@ -279,6 +282,23 @@ pub fn std_lib_info() -> Result<()> {
             .into_iter()
             .map(|info| (String::from(info.name()), info)),
     );
+
+    let mut extern_crates = extern_crates_in_package(&std_pkg)?;
+    let mut things = Vec::new();
+    pkgs.par_iter()
+        .map(|pkg| extern_crates_in_package(pkg).unwrap())
+        .collect_into_vec(&mut things);
+    for thing in things {
+        extern_crates.extend(thing);
+    }
+
+    println!("EXTERN-CRATES");
+    for (path, crates) in &extern_crates {
+        println!("{}", path.to_string().red());
+        for c in crates {
+            println!("    {}", c);
+        }
+    }
 
     let struct_tree = ItemTree::new(&structs);
     println!("STRUCT-TREE: \n{}", struct_tree);
@@ -398,6 +418,12 @@ fn use_paths_in_dependency(pkg: &SimplePackage) -> Result<HashMap<Path, Vec<UseP
     }
 }
 
+fn extern_crates_in_package(pkg: &SimplePackage) -> Result<HashMap<Path, Vec<ExternCrate>>> {
+    match pkg.library() {
+        Some(lib) => Ok(things_in_target(lib, extern_crates_from_items)?),
+        None => Ok(HashMap::new()),
+    }
+}
 fn structs_in_target(targ: &SimpleTarget) -> Result<(Vec<Struct>, ModuleInfo)> {
     let crate_name = targ.crate_name();
     let src_path = match targ.src_path() {
