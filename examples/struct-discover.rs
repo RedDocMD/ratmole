@@ -1,5 +1,8 @@
 use colored::*;
-use ratmole::{error::Error, explore::crate_info};
+use ratmole::{
+    error::Error,
+    explore::{crate_info, std_lib_info},
+};
 use std::{env, io::Write};
 
 fn main() -> Result<(), Error> {
@@ -17,16 +20,17 @@ fn main() -> Result<(), Error> {
         .write_style(env_logger::WriteStyle::Always)
         .init();
 
-    let args: Vec<String> = env::args().collect();
-    let crate_path = &args[1];
-    let info = crate_info(crate_path, false)?;
-    let will_print = if args.len() > 2 {
-        args[2].parse().unwrap()
-    } else {
-        false
-    };
-    if will_print {
-        println!("{}", info);
-    }
+    // let args: Vec<String> = env::args().collect();
+    // let crate_path = &args[1];
+    // let info = crate_info(crate_path)?;
+    // let will_print = if args.len() > 2 {
+    //     args[2].parse().unwrap()
+    // } else {
+    //     false
+    // };
+    // if will_print {
+    //     println!("{}", info);
+    // }
+    std_lib_info().unwrap();
     Ok(())
 }
