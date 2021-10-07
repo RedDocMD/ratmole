@@ -212,7 +212,7 @@ pub fn crate_info<T: AsRef<StdPath>>(main_crate_root: T) -> Result<MainCrateInfo
     pkgs.par_iter()
         .map(|pkg| {
             debug!("Exploring {}", pkg.name());
-            structs_in_dependency(pkg).unwrap()
+            structs_in_package(pkg).unwrap()
         })
         .collect_into_vec(&mut things);
     let (dep_structs, dep_infos): (Vec<_>, Vec<_>) = things.into_iter().unzip();
@@ -227,7 +227,7 @@ pub fn crate_info<T: AsRef<StdPath>>(main_crate_root: T) -> Result<MainCrateInfo
     println!("{}", tree);
 
     for pkg in &pkgs {
-        let use_paths = use_paths_in_dependency(pkg)?;
+        let use_paths = use_paths_in_package(pkg)?;
         for (path, use_paths) in &use_paths {
             println!("{}", path.to_string().red());
             for use_path in use_paths {
@@ -272,7 +272,7 @@ pub fn std_lib_info() -> Result<()> {
     pkgs.par_iter()
         .map(|pkg| {
             debug!("Exploring {}", pkg.name());
-            structs_in_dependency(pkg).unwrap()
+            structs_in_package(pkg).unwrap()
         })
         .collect_into_vec(&mut things);
     let (dep_structs, dep_infos): (Vec<_>, Vec<_>) = things.into_iter().unzip();
@@ -311,20 +311,29 @@ pub fn std_lib_info() -> Result<()> {
     let module_tree = ItemTree::new(&modules);
     println!("MODULE-TREE: \n{}", module_tree);
 
-    let std_use_paths = use_paths_in_dependency(&std_pkg)?;
+    let std_use_paths = use_paths_in_package(&std_pkg)?;
     for (path, use_paths) in &std_use_paths {
         println!("{}", path.to_string().red());
         for use_path in use_paths {
             if matches!(use_path.visibility(), Visibility::Public) {
+                // Make sure to localize path
                 let mut use_path = use_path.clone();
                 debug!("Before delocalize: {} in {}", use_path, path);
                 let new_path = use_path.delocalize(path);
                 debug!("After delocalize: {} in {}", use_path, new_path);
+
+                // Modify use-path depending on extern crate renames
+                extern_crate_rename(&mut use_path, &new_path.first_as_path(), &extern_crates);
+                extern_crate_rename(&mut use_path, &new_path, &extern_crates);
+
+                // Figure out the path to start with
                 let start_mod = if std_pkg.edition >= Edition::Edition2018 {
                     new_path
                 } else {
                     Path::from(vec![std_pkg.name().clone()])
                 };
+
+                // Now search for the element
                 let structs = struct_tree.resolve_use_path(&use_path, &start_mod);
                 let items_str = if !structs.is_empty() {
                     structs.into_iter().map(|item| item.to_string()).collect()
@@ -341,6 +350,22 @@ pub fn std_lib_info() -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn extern_crate_rename(
+    use_path: &mut UsePath,
+    module: &Path,
+    extern_crates: &HashMap<Path, Vec<ExternCrate>>,
+) {
+    if let Some(extern_crates) = extern_crates.get(module) {
+        for extern_crate in extern_crates {
+            if let Some(rename) = extern_crate.rename() {
+                if use_path.begins_with(rename) {
+                    use_path.replace_first(extern_crate.name());
+                }
+            }
+        }
+    }
 }
 
 fn download_dependencies(pkg: &Package, config: &Config) -> Result<Vec<Package>> {
@@ -401,7 +426,7 @@ fn structs_in_main_crate(
     Ok((structs, infos))
 }
 
-fn structs_in_dependency(pkg: &SimplePackage) -> Result<(Vec<Struct>, ModuleInfo)> {
+fn structs_in_package(pkg: &SimplePackage) -> Result<(Vec<Struct>, ModuleInfo)> {
     match pkg.library() {
         Some(lib) => Ok(structs_in_target(lib)?),
         None => Ok((
@@ -411,7 +436,7 @@ fn structs_in_dependency(pkg: &SimplePackage) -> Result<(Vec<Struct>, ModuleInfo
     }
 }
 
-fn use_paths_in_dependency(pkg: &SimplePackage) -> Result<HashMap<Path, Vec<UsePath>>> {
+fn use_paths_in_package(pkg: &SimplePackage) -> Result<HashMap<Path, Vec<UsePath>>> {
     match pkg.library() {
         Some(lib) => Ok(things_in_target(lib, use_paths_from_items)?),
         None => Ok(HashMap::new()),

@@ -22,6 +22,16 @@ impl Display for ExternCrate {
     }
 }
 
+impl ExternCrate {
+    pub fn rename(&self) -> &Option<String> {
+        &self.rename
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+}
+
 pub fn extern_crates_from_items(
     items: &[syn::Item],
     module: &mut Path,

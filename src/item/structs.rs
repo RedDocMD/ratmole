@@ -110,6 +110,10 @@ impl Path {
     pub fn parent(&self) -> Path {
         Self(self.0[..self.0.len() - 1].to_vec())
     }
+
+    pub fn first_as_path(&self) -> Path {
+        Path(vec![self.components().first().unwrap().clone()])
+    }
 }
 
 impl From<Vec<String>> for Path {

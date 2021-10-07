@@ -82,6 +82,24 @@ impl UsePath {
         self.path = new_path;
         Path::new(new_mod)
     }
+
+    pub fn begins_with(&self, s: &str) -> bool {
+        if let Some(first) = self.components().first() {
+            match first {
+                UsePathComponent::Name(name) => s == name,
+                _ => false,
+            }
+        } else {
+            false
+        }
+    }
+
+    pub fn replace_first(&mut self, new_first: &str) {
+        if let Some(UsePathComponent::Name(first)) = self.path.first_mut() {
+            first.clear();
+            first.push_str(new_first);
+        }
+    }
 }
 
 impl Display for UsePath {
