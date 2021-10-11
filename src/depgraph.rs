@@ -44,7 +44,7 @@ impl PartialEq for Crate {
 
 impl Display for Crate {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{} {}", self.name, self.version)
+        write!(f, "{} v{}", self.name, self.version)
     }
 }
 

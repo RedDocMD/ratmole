@@ -26,15 +26,15 @@ fn rec_tree_print(
 ) -> fmt::Result {
     for pos in &positions[0..positions.len() - 1] {
         match pos {
-            DepthPosition::Other => write!(f, "\u{2502} ")?,
-            DepthPosition::Last => write!(f, "  ")?,
+            DepthPosition::Other => write!(f, "\u{2502}   ")?,
+            DepthPosition::Last => write!(f, "    ")?,
             DepthPosition::Root => {}
         }
     }
     match positions.last().unwrap() {
         DepthPosition::Root => { /* Do Nothing */ }
-        DepthPosition::Last => write!(f, "\u{2514}\u{2500}")?,
-        DepthPosition::Other => write!(f, "\u{251C}\u{2500}")?,
+        DepthPosition::Last => write!(f, "\u{2514}\u{2500}\u{2500} ")?,
+        DepthPosition::Other => write!(f, "\u{251C}\u{2500}\u{2500} ")?,
     }
     node.single_write(f)?;
     writeln!(f)?;
