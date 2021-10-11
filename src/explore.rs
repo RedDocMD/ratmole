@@ -1,5 +1,6 @@
 use crate::{
-    cargo::{download_dependency, parse_cargo},
+    cargo::{download_package_deps, parse_cargo},
+    depgraph::DepGraph,
     error::{Error, Result},
     item::{
         extern_crate::{extern_crates_from_items, ExternCrate},
@@ -10,11 +11,7 @@ use crate::{
     use_path::{use_paths_from_items, UsePath},
 };
 use cargo::{
-    core::{
-        compiler::CrateType, dependency::DepKind, manifest::TargetSourcePath, Edition, Package,
-        Source, SourceId, Target, TargetKind,
-    },
-    sources::{GitSource, PathSource, SourceConfigMap},
+    core::{compiler::CrateType, manifest::TargetSourcePath, Edition, Package, Target, TargetKind},
     Config,
 };
 use colored::*;
@@ -196,7 +193,7 @@ pub fn crate_info<T: AsRef<StdPath>>(main_crate_root: T) -> Result<MainCrateInfo
     let config = Config::default()?;
     let (manifest, manifest_path) = parse_cargo(&main_crate_root, &config)?;
     let main_cargo_pkg = Package::new(manifest, &manifest_path);
-    let pkgs = download_dependencies(&main_cargo_pkg, &config)?;
+    let pkgs = download_package_deps(&main_cargo_pkg, &config)?;
 
     let main_pkg = SimplePackage::from_cargo(main_cargo_pkg);
     let mut structs = Vec::new();
@@ -261,7 +258,10 @@ pub fn std_lib_info() -> Result<()> {
     let config = Config::default()?;
     let (manifest, manifest_path) = parse_cargo(std_repo.crate_path(), &config)?;
     let std_pkg = Package::new(manifest, &manifest_path);
-    let pkgs = download_dependencies(&std_pkg, &config)?;
+    let pkgs = download_package_deps(&std_pkg, &config)?;
+
+    let dep_graph = DepGraph::new(std_repo.crate_path())?;
+    println!("DEP-GRAPH:\n{}", dep_graph);
 
     let std_pkg = SimplePackage::from_cargo(std_pkg);
     let (mut structs, mod_info) = structs_in_main_crate(&std_pkg)?;
@@ -349,6 +349,7 @@ pub fn std_lib_info() -> Result<()> {
             }
         }
     }
+
     Ok(())
 }
 
@@ -366,51 +367,6 @@ fn extern_crate_rename(
             }
         }
     }
-}
-
-fn download_dependencies(pkg: &Package, config: &Config) -> Result<Vec<Package>> {
-    let _lock = config.acquire_package_cache_lock()?;
-    let crates_io_id = SourceId::crates_io(config)?;
-    let config_map = SourceConfigMap::new(config)?;
-    let mut crates_io = config_map.load(crates_io_id, &Default::default())?;
-    crates_io.update()?;
-
-    let mut dep_pkgs = Vec::new();
-    for dep in pkg.dependencies() {
-        if dep.kind() != DepKind::Normal {
-            continue;
-        }
-        debug!("Downloading {} ...", dep.name_in_toml());
-        let dep_src_id = dep.source_id();
-        if dep_src_id == crates_io_id {
-            debug!("from crates");
-            dep_pkgs.push(download_dependency(dep, &mut crates_io, config)?);
-        } else if dep_src_id.is_path() {
-            debug!("from path");
-            let path = dep_src_id
-                .url()
-                .to_file_path()
-                .unwrap_or_else(|_| panic!("path of {} must be valid", dep.name_in_toml()));
-            let mut src = PathSource::new(&path, dep_src_id, config);
-            src.update()?;
-            dep_pkgs.push(download_dependency(dep, &mut src, config)?);
-        } else if dep_src_id.is_git() {
-            debug!("from git");
-            dep_pkgs.push(download_dependency(
-                dep,
-                GitSource::new(dep_src_id, config)?,
-                config,
-            )?);
-        } else {
-            debug!("from elsewhere");
-            let config_map = SourceConfigMap::new(config)?;
-            let mut src = config_map.load(dep_src_id, &Default::default())?;
-            src.update()?;
-            dep_pkgs.push(download_dependency(dep, &mut src, config)?);
-        }
-        debug!(" ... downloaded {}", dep.name_in_toml());
-    }
-    Ok(dep_pkgs)
 }
 
 fn structs_in_main_crate(

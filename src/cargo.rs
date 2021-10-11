@@ -10,9 +10,11 @@ use cargo::{
 };
 use colored::*;
 use log::debug;
+use semver::Version;
 use std::{
     array::IntoIter as ArrayIntoIter,
     collections::HashSet,
+    fmt::{self, Display, Formatter},
     fs::File,
     io::Read,
     iter::FromIterator,
@@ -166,6 +168,20 @@ impl DependentPackage {
             dep_pkgs.push(dep_pkg);
         }
         Ok(dep_pkgs)
+    }
+
+    pub fn name(&self) -> InternedString {
+        self.package.name()
+    }
+
+    pub fn version(&self) -> &Version {
+        self.package.version()
+    }
+}
+
+impl Display for DependentPackage {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{} v{}", self.name(), self.version())
     }
 }
 

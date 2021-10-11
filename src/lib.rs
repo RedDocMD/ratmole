@@ -1,4 +1,5 @@
 pub mod cargo;
+mod depgraph;
 pub mod error;
 pub mod explore;
 pub mod item;
