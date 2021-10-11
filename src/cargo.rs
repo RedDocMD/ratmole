@@ -40,7 +40,7 @@ pub fn parse_cargo<T: AsRef<path::Path>>(
     Ok((manifest, toml_path))
 }
 
-fn download_dependency<'a, T>(
+fn download_dependency_from_src<'a, T>(
     dep: &Dependency,
     mut src: T,
     config: &Config,
@@ -120,6 +120,53 @@ impl DependentPackage {
             enabled_features,
         }
     }
+
+    fn dependencies(&self) -> Vec<&Dependency> {
+        self.package
+            .dependencies()
+            .iter()
+            .filter(|dep| {
+                if dep.kind() == DepKind::Normal {
+                    if !dep.is_optional() {
+                        true
+                    } else {
+                        let name = dep.name_in_toml();
+                        self.enabled_features.iter().any(|feat| {
+                            if let FeatureValue::DepFeature { dep_name, weak, .. } = feat {
+                                dep_name == &name && !weak
+                            } else {
+                                false
+                            }
+                        })
+                    }
+                } else {
+                    false
+                }
+            })
+            .collect()
+    }
+
+    pub fn download_dependencies(
+        &self,
+        config: &Config,
+        update_crates_io: bool,
+    ) -> Result<Vec<Self>> {
+        let _lock = config.acquire_package_cache_lock()?;
+        let crates_io_id = SourceId::crates_io(config)?;
+        let config_map = SourceConfigMap::new(config)?;
+        let mut crates_io = config_map.load(crates_io_id, &Default::default())?;
+        if update_crates_io {
+            crates_io.update()?;
+        }
+
+        let mut dep_pkgs = Vec::new();
+        for dep in self.dependencies() {
+            let pkg = download_dependency(dep, &config, &crates_io_id, crates_io.as_mut())?;
+            let dep_pkg = Self::from_cargo(pkg, self, dep);
+            dep_pkgs.push(dep_pkg);
+        }
+        Ok(dep_pkgs)
+    }
 }
 
 fn default_features(package: &Package) -> HashSet<FeatureValue> {
@@ -160,35 +207,45 @@ pub fn download_dependencies(dependencies: &[Dependency], config: &Config) -> Re
         if dep.kind() != DepKind::Normal {
             continue;
         }
-        debug!("Downloading {} ...", dep.name_in_toml());
-        let dep_src_id = dep.source_id();
-        if dep_src_id == crates_io_id {
-            debug!("from crates");
-            dep_pkgs.push(download_dependency(dep, &mut crates_io, config)?);
-        } else if dep_src_id.is_path() {
-            debug!("from path");
-            let path = dep_src_id
-                .url()
-                .to_file_path()
-                .unwrap_or_else(|_| panic!("path of {} must be valid", dep.name_in_toml()));
-            let mut src = PathSource::new(&path, dep_src_id, config);
-            src.update()?;
-            dep_pkgs.push(download_dependency(dep, &mut src, config)?);
-        } else if dep_src_id.is_git() {
-            debug!("from git");
-            dep_pkgs.push(download_dependency(
-                dep,
-                GitSource::new(dep_src_id, config)?,
-                config,
-            )?);
-        } else {
-            debug!("from elsewhere");
-            let config_map = SourceConfigMap::new(config)?;
-            let mut src = config_map.load(dep_src_id, &Default::default())?;
-            src.update()?;
-            dep_pkgs.push(download_dependency(dep, &mut src, config)?);
-        }
+        dep_pkgs.push(download_dependency(
+            dep,
+            config,
+            &crates_io_id,
+            crates_io.as_mut(),
+        )?);
         debug!(" ... downloaded {}", dep.name_in_toml());
     }
     Ok(dep_pkgs)
+}
+
+fn download_dependency(
+    dep: &Dependency,
+    config: &Config,
+    crates_io_id: &SourceId,
+    crates_io: &mut dyn Source,
+) -> Result<Package> {
+    debug!("Downloading {} ...", dep.name_in_toml());
+    let dep_src_id = dep.source_id();
+    if &dep_src_id == crates_io_id {
+        debug!("from crates");
+        download_dependency_from_src(dep, crates_io, config)
+    } else if dep_src_id.is_path() {
+        debug!("from path");
+        let path = dep_src_id
+            .url()
+            .to_file_path()
+            .unwrap_or_else(|_| panic!("path of {} must be valid", dep.name_in_toml()));
+        let mut src = PathSource::new(&path, dep_src_id, config);
+        src.update()?;
+        download_dependency_from_src(dep, &mut src, config)
+    } else if dep_src_id.is_git() {
+        debug!("from git");
+        download_dependency_from_src(dep, GitSource::new(dep_src_id, config)?, config)
+    } else {
+        debug!("from elsewhere");
+        let config_map = SourceConfigMap::new(config)?;
+        let mut src = config_map.load(dep_src_id, &Default::default())?;
+        src.update()?;
+        download_dependency_from_src(dep, &mut src, config)
+    }
 }
