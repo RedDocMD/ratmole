@@ -133,11 +133,11 @@ impl DependentPackage {
                         true
                     } else {
                         let name = dep.name_in_toml();
-                        self.enabled_features.iter().any(|feat| {
-                            if let FeatureValue::DepFeature { dep_name, weak, .. } = feat {
+                        self.enabled_features.iter().any(|feat| match feat {
+                            FeatureValue::Feature(_) => false,
+                            FeatureValue::Dep { dep_name } => dep_name == &name,
+                            FeatureValue::DepFeature { dep_name, weak, .. } => {
                                 dep_name == &name && !weak
-                            } else {
-                                false
                             }
                         })
                     }
