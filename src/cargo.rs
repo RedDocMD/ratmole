@@ -1,4 +1,7 @@
-use crate::error::{Error, Result};
+use crate::{
+    cfg::{dev_cfg_expr, dev_platform_name, Platform},
+    error::{Error, Result},
+};
 use cargo::{
     core::{
         dependency::DepKind, Dependency, FeatureMap, FeatureValue, Manifest, Package, Source,
@@ -143,6 +146,17 @@ impl DependentPackage {
                     }
                 } else {
                     false
+                }
+            })
+            .filter(|dep| {
+                if let Some(platform) = dep.platform() {
+                    let platform: Platform = platform.clone().into();
+                    match platform {
+                        Platform::Name(name) => dev_platform_name() == name,
+                        Platform::CfgExpr(cfg_expr) => cfg_expr.is_satisfied_by(&dev_cfg_expr()),
+                    }
+                } else {
+                    true
                 }
             })
             .collect()
