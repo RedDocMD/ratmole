@@ -1,5 +1,6 @@
 use std::{
     cell::RefCell,
+    cmp::Ordering,
     collections::HashMap,
     fmt::{self, Display, Formatter},
     path::Path as StdPath,
@@ -11,21 +12,18 @@ use crate::{
     printer::TreePrintable,
 };
 use cargo::{core::Package, Config};
-use semver::Version;
 
 #[derive(Eq, Clone)]
 struct Crate {
-    name: String,
-    version: Version,
+    pkg: DependentPackage,
     dependencies: Vec<Crate>,
 }
 
 impl Crate {
     // Crate without any dependencies added
-    fn bare_crate(pkg: &DependentPackage) -> Self {
+    fn bare_crate(pkg: DependentPackage) -> Self {
         Self {
-            name: pkg.name().to_string(),
-            version: pkg.version().clone(),
+            pkg,
             dependencies: Vec::new(),
         }
     }
@@ -38,13 +36,25 @@ impl Crate {
 
 impl PartialEq for Crate {
     fn eq(&self, ot: &Self) -> bool {
-        self.name == ot.name && self.version == ot.version
+        self.pkg == ot.pkg
+    }
+}
+
+impl Ord for Crate {
+    fn cmp(&self, ot: &Self) -> Ordering {
+        self.pkg.cmp(&ot.pkg)
+    }
+}
+
+impl PartialOrd for Crate {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
 impl Display for Crate {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{} v{}", self.name, self.version)
+        write!(f, "{} v{}", self.pkg.name(), self.pkg.version())
     }
 }
 
@@ -89,7 +99,7 @@ fn rec_graph_create<'dep>(
     crates: &RefCell<HashMap<String, Crate>>,
     depth: i32,
 ) -> Result<Crate> {
-    let mut bare_crate = Crate::bare_crate(pkg);
+    let mut bare_crate = Crate::bare_crate(pkg.clone());
     let dep_pkgs = pkg.download_dependencies(&config, true)?;
     for dep_pkg in &dep_pkgs {
         let dep_key = dep_pkg.to_string();
@@ -107,5 +117,6 @@ fn rec_graph_create<'dep>(
         if from_store {}
         bare_crate.add_dependency(dep_crate.unwrap());
     }
+    bare_crate.dependencies.sort();
     Ok(bare_crate)
 }

@@ -16,6 +16,7 @@ use log::debug;
 use semver::Version;
 use std::{
     array::IntoIter as ArrayIntoIter,
+    cmp::Ordering,
     collections::HashSet,
     fmt::{self, Display, Formatter},
     fs::File,
@@ -66,9 +67,22 @@ pub fn download_package_deps(pkg: &Package, config: &Config) -> Result<Vec<Packa
     download_dependencies(pkg.dependencies(), config)
 }
 
+#[derive(Clone, PartialEq, Eq)]
 pub struct DependentPackage {
     package: Package,
     enabled_features: HashSet<FeatureValue>,
+}
+
+impl Ord for DependentPackage {
+    fn cmp(&self, ot: &Self) -> Ordering {
+        self.package.cmp(&ot.package)
+    }
+}
+
+impl PartialOrd for DependentPackage {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl DependentPackage {
