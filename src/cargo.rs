@@ -165,6 +165,7 @@ impl DependentPackage {
             .filter(|dep| {
                 if let Some(platform) = dep.platform() {
                     let platform: Platform = platform.clone().into();
+                    // FIXME: Generalize this to all platforms
                     match platform {
                         Platform::Name(name) => dev_platform_name() == name,
                         Platform::CfgExpr(cfg_expr) => cfg_expr.is_satisfied_by(&dev_cfg_expr()),

@@ -1,8 +1,5 @@
 use colored::*;
-use ratmole::{
-    error::Error,
-    explore::{crate_info, std_lib_info},
-};
+use ratmole::{error::Error, explore::std_lib_info};
 use std::{env, io::Write};
 
 fn main() -> Result<(), Error> {

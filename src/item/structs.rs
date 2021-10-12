@@ -7,8 +7,6 @@ use std::{
 
 use crate::{printer::TreePrintable, tree::TreeItem};
 
-use super::module::Module;
-
 #[derive(Debug, Clone)]
 pub struct Struct {
     name: String,
@@ -41,6 +39,16 @@ impl TreeItem for Struct {
 
     fn name(&self) -> &str {
         &self.name
+    }
+}
+
+impl TreePrintable for Struct {
+    fn single_write(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.fmt(f)
+    }
+
+    fn children(&self) -> Vec<&dyn TreePrintable> {
+        Vec::new()
     }
 }
 
@@ -204,117 +212,29 @@ impl Visibility {
     }
 }
 
-pub fn structs_from_items(
-    items: &[syn::Item],
-    module: &mut Path,
-) -> (Vec<Struct>, Vec<ModuleInfo>) {
+pub fn structs_from_items(items: &[syn::Item], module: &mut Path) -> HashMap<Path, Vec<Struct>> {
     use syn::Item;
-    let mut structs = Vec::new();
-    let mut infos = Vec::new();
+    let mut structs: HashMap<Path, Vec<Struct>> = HashMap::new();
     for item in items {
         match item {
-            Item::Struct(item) => structs.push(Struct::from_syn(item, module.clone())),
+            Item::Struct(item) => {
+                let s = Struct::from_syn(item, module.clone());
+                if let Some(existing_structs) = structs.get_mut(module) {
+                    existing_structs.push(s);
+                } else {
+                    structs.insert(module.clone(), vec![s]);
+                }
+            }
             Item::Mod(item) => {
                 module.push_name(item.ident.to_string());
                 if let Some((_, content)) = &item.content {
-                    let mut info =
-                        ModuleInfo::new(item.ident.to_string(), Visibility::from_syn(&item.vis));
-                    let (mut new_structs, new_infos) = structs_from_items(content, module);
-                    structs.append(&mut new_structs);
-                    info.add_children(new_infos);
-                    infos.push(info);
+                    let mut new_structs = structs_from_items(content, module);
+                    structs.extend(new_structs);
                 }
                 module.pop();
             }
             _ => {}
         }
     }
-    (structs, infos)
-}
-
-#[derive(Debug)]
-pub struct ModuleInfo {
-    name: String,
-    vis: Visibility,
-    children: HashMap<String, ModuleInfo>,
-}
-
-impl ModuleInfo {
-    pub fn new(name: String, vis: Visibility) -> Self {
-        Self {
-            name,
-            vis,
-            children: HashMap::new(),
-        }
-    }
-
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn add_child(&mut self, name: String, vis: Visibility) {
-        self.children.insert(name.clone(), Self::new(name, vis));
-    }
-
-    pub fn add_child_mod(&mut self, info: ModuleInfo) {
-        self.children.insert(info.name.clone(), info);
-    }
-
-    pub fn add_children(&mut self, children: Vec<ModuleInfo>) {
-        for child in children {
-            self.add_child_mod(child);
-        }
-    }
-
-    pub fn modules(&self) -> Vec<Module> {
-        module_names(self, &mut Vec::new())
-            .iter()
-            .map(|names| Module::new(names))
-            .collect()
-    }
-}
-
-fn module_names(current_info: &ModuleInfo, parent_names: &mut Vec<String>) -> Vec<Vec<String>> {
-    parent_names.push(current_info.name.clone());
-    let names = if current_info.children.is_empty() {
-        vec![parent_names.clone()]
-    } else {
-        current_info
-            .children
-            .values()
-            .map(|info| module_names(info, parent_names))
-            .flatten()
-            .collect()
-    };
-    parent_names.pop();
-    names
-}
-
-impl TreePrintable for ModuleInfo {
-    fn single_write(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}{}", self.vis, self.name)
-    }
-
-    fn children(&self) -> Vec<&dyn TreePrintable> {
-        self.children
-            .values()
-            .map(|child| child as &dyn TreePrintable)
-            .collect()
-    }
-}
-
-impl Display for ModuleInfo {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.tree_print(f)
-    }
-}
-
-impl TreePrintable for Struct {
-    fn single_write(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{} {}", "struct".red(), self.name)
-    }
-
-    fn children(&self) -> Vec<&dyn TreePrintable> {
-        vec![]
-    }
+    structs
 }

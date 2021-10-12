@@ -1,4 +1,7 @@
-use std::fmt::{self, Display, Formatter};
+use std::{
+    collections::HashMap,
+    fmt::{self, Display, Formatter},
+};
 
 use crate::{printer::TreePrintable, tree::TreeItem};
 
@@ -46,4 +49,34 @@ impl TreeItem for Module {
     fn module(&self) -> &Path {
         &self.parent
     }
+}
+
+pub fn modules_from_items(items: &[syn::Item], module: &mut Path) -> HashMap<Path, Vec<Module>> {
+    use syn::Item;
+    let mut modules: HashMap<Path, Vec<Module>> = HashMap::new();
+    for item in items {
+        match item {
+            Item::Mod(item) => {
+                let parent = module.clone();
+                module.push_name(item.ident.to_string());
+                let new_module = Module {
+                    path: module.clone(),
+                    parent: parent.clone(),
+                    name: item.ident.to_string(),
+                };
+                if let Some(existing_modules) = modules.get_mut(&parent) {
+                    existing_modules.push(new_module);
+                } else {
+                    modules.insert(parent, vec![new_module]);
+                }
+                if let Some((_, content)) = &item.content {
+                    let mut new_structs = modules_from_items(content, module);
+                    modules.extend(new_structs);
+                }
+                module.pop();
+            }
+            _ => {}
+        }
+    }
+    modules
 }
