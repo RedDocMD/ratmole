@@ -371,13 +371,13 @@ where
         TargetSourcePath::Path(path) => path,
         TargetSourcePath::Metabuild => return Ok(HashMap::new()),
     };
-    let mut use_paths = things_from_file(&src_path, Path::from(vec![crate_name.clone()]), &gen)?
+    let mut things = things_from_file(&src_path, Path::from(vec![crate_name.clone()]), &gen)?
         .unwrap_or_else(|| {
             warn!("failed to parse {}", src_path.display());
             HashMap::new()
         });
 
-    let new_use_paths = things_from_submodules(
+    let new_things = things_from_submodules(
         &Module {
             cat: ModuleCategory::Root,
             name: crate_name,
@@ -387,21 +387,22 @@ where
         },
         &gen,
     )?;
-    for (k, mut v) in new_use_paths {
-        if let Some(existing) = use_paths.get_mut(&k) {
+    for (k, mut v) in new_things {
+        if let Some(existing) = things.get_mut(&k) {
             existing.append(&mut v);
         } else {
-            use_paths.insert(k, v);
+            things.insert(k, v);
         }
     }
-    Ok(use_paths)
+    Ok(things)
 }
 
 fn things_from_submodules<F, R>(module: &Module<'_>, gen: F) -> Result<HashMap<Path, Vec<R>>>
 where
-    F: Fn(&[syn::Item], &mut Path) -> HashMap<Path, Vec<R>> + Sync + Send,
+    F: Fn(&[syn::Item], &mut Path) -> HashMap<Path, Vec<R>> + Sync + Send + Clone,
     R: Send,
 {
+    debug!("Exploring module {}", module);
     let empty_mods = match empty_modules_from_file(&module.path)? {
         Some(mods) => mods,
         None => return Ok(HashMap::new()),
@@ -421,18 +422,30 @@ where
                 })
         })
         .collect_into_vec(&mut things);
+    let mut more_things = Vec::new();
+    sub_mods
+        .par_iter()
+        .map(|sub_mod| {
+            things_from_submodules(sub_mod, gen.clone()).unwrap_or_else(|_| {
+                warn!("failed to recurse into {}", sub_mod.rust_path);
+                HashMap::new()
+            })
+        })
+        .collect_into_vec(&mut more_things);
 
-    let mut use_paths_map: HashMap<Path, Vec<R>> = HashMap::new();
+    things.append(&mut more_things);
+
+    let mut things_map: HashMap<Path, Vec<R>> = HashMap::new();
     for thing in things {
         for (k, mut v) in thing {
-            if let Some(existing) = use_paths_map.get_mut(&k) {
+            if let Some(existing) = things_map.get_mut(&k) {
                 existing.append(&mut v);
             } else {
-                use_paths_map.insert(k, v);
+                things_map.insert(k, v);
             }
         }
     }
-    Ok(use_paths_map)
+    Ok(things_map)
 }
 
 #[derive(Debug)]

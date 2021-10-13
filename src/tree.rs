@@ -59,13 +59,15 @@ pub struct ItemTree<'t, T> {
     root: PathNode<'t, T>,
 }
 
+const TREE_ROOT_NAME: &str = "<root>";
+
 impl<'t, T> ItemTree<'t, T>
 where
     T: TreeItem,
 {
     pub fn new(items: &'t [T]) -> Self {
         let mut tree = Self {
-            root: PathNode::new(String::from("<root>")),
+            root: PathNode::new(String::from(TREE_ROOT_NAME)),
         };
         for t in items {
             tree.add_item(t);

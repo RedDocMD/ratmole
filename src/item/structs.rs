@@ -107,6 +107,10 @@ impl Path {
         self.0.push(PathComponent::Name(comp));
     }
 
+    pub fn prepend_name(&mut self, comp: String) {
+        self.0.insert(0, PathComponent::Name(comp));
+    }
+
     pub fn components(&self) -> &[PathComponent] {
         &self.0
     }
@@ -228,7 +232,7 @@ pub fn structs_from_items(items: &[syn::Item], module: &mut Path) -> HashMap<Pat
             Item::Mod(item) => {
                 module.push_name(item.ident.to_string());
                 if let Some((_, content)) = &item.content {
-                    let mut new_structs = structs_from_items(content, module);
+                    let new_structs = structs_from_items(content, module);
                     structs.extend(new_structs);
                 }
                 module.pop();

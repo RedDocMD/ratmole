@@ -4,6 +4,7 @@ use std::{
 };
 
 use crate::{printer::TreePrintable, tree::TreeItem};
+use colored::*;
 
 use super::structs::Path;
 
@@ -33,7 +34,7 @@ impl Display for Module {
 
 impl TreePrintable for Module {
     fn single_write(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.path.components().last().unwrap())
+        write!(f, "{} {}", "mod".magenta(), self.name)
     }
 
     fn children(&self) -> Vec<&dyn TreePrintable> {
@@ -54,26 +55,38 @@ impl TreeItem for Module {
 pub fn modules_from_items(items: &[syn::Item], module: &mut Path) -> HashMap<Path, Vec<Module>> {
     use syn::Item;
     let mut modules: HashMap<Path, Vec<Module>> = HashMap::new();
+    let current_module = Module {
+        path: module.clone(),
+        parent: module.parent().clone(),
+        name: module.components().last().unwrap().to_string(),
+    };
+    if let Some(existing_modules) = modules.get_mut(&current_module.parent) {
+        existing_modules.push(current_module);
+    } else {
+        modules.insert(current_module.parent.clone(), vec![current_module]);
+    }
     for item in items {
         match item {
             Item::Mod(item) => {
-                let parent = module.clone();
-                module.push_name(item.ident.to_string());
-                let new_module = Module {
-                    path: module.clone(),
-                    parent: parent.clone(),
-                    name: item.ident.to_string(),
-                };
-                if let Some(existing_modules) = modules.get_mut(&parent) {
-                    existing_modules.push(new_module);
-                } else {
-                    modules.insert(parent, vec![new_module]);
+                if item.content.is_some() {
+                    let parent = module.clone();
+                    module.push_name(item.ident.to_string());
+                    let new_module = Module {
+                        path: module.clone(),
+                        parent: parent.clone(),
+                        name: item.ident.to_string(),
+                    };
+                    if let Some(existing_modules) = modules.get_mut(&parent) {
+                        existing_modules.push(new_module);
+                    } else {
+                        modules.insert(parent, vec![new_module]);
+                    }
+                    if let Some((_, content)) = &item.content {
+                        let new_modules = modules_from_items(content, module);
+                        modules.extend(new_modules);
+                    }
+                    module.pop();
                 }
-                if let Some((_, content)) = &item.content {
-                    let mut new_structs = modules_from_items(content, module);
-                    modules.extend(new_structs);
-                }
-                module.pop();
             }
             _ => {}
         }

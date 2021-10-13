@@ -56,9 +56,7 @@ pub fn extern_crates_from_items(
                 if let Some((_, items)) = item.content.as_ref() {
                     module.push_name(item.ident.to_string());
                     let new_crates = extern_crates_from_items(items, module);
-                    for (k, v) in new_crates {
-                        extern_crates_map.insert(k, v);
-                    }
+                    extern_crates_map.extend(new_crates);
                     module.pop();
                 }
             }
