@@ -49,6 +49,7 @@ impl<T> PathNode<'_, T> {
                 UsePathComponent::Name(name) => resolve_name(self, name),
                 UsePathComponent::Rename(name, _) => resolve_name(self, name),
                 UsePathComponent::Glob => self.child_items.values().copied().collect(),
+                UsePathComponent::Empty => panic!("Cannot resolve empty use-path component"),
             }
         }
     }

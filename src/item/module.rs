@@ -28,13 +28,13 @@ impl Module {
 
 impl Display for Module {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.path)
+        write!(f, "{} {}", "mod".magenta(), self.path)
     }
 }
 
 impl TreePrintable for Module {
     fn single_write(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{} {}", "mod".magenta(), self.name)
+        write!(f, "{} {}", "mod".magenta(), self.path)
     }
 
     fn children(&self) -> Vec<&dyn TreePrintable> {

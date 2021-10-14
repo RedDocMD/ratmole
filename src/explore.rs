@@ -5,7 +5,8 @@ use crate::{
     item::{
         extern_crate::{extern_crates_from_items, ExternCrate},
         module::modules_from_items,
-        structs::{structs_from_items, Path, Visibility},
+        module::Module as ModuleItem,
+        structs::{structs_from_items, Path, Struct, Visibility},
     },
     stdlib::StdRepo,
     tree::ItemTree,
@@ -280,40 +281,20 @@ pub fn std_lib_info() -> Result<()> {
     let module_tree = ItemTree::new(&modules_vec);
     println!("MODULE-TREE: \n{}", module_tree);
 
+    let use_path_resolver = UsePathResolver {
+        struct_tree: struct_tree,
+        mod_tree: module_tree,
+        extern_crates,
+        edition: std_pkg.edition,
+    };
+
     let std_use_paths = things_in_package(&std_pkg, true, use_paths_from_items)?;
     for (path, use_paths) in &std_use_paths {
         println!("{}", path.to_string().red());
         for use_path in use_paths {
             if matches!(use_path.visibility(), Visibility::Public) {
-                // Make sure to localize path
-                let mut use_path = use_path.clone();
-                debug!("Before delocalize: {} in {}", use_path, path);
-                let new_path = use_path.delocalize(path);
-                debug!("After delocalize: {} in {}", use_path, new_path);
-
-                // Modify use-path depending on extern crate renames
-                extern_crate_rename(&mut use_path, &new_path.first_as_path(), &extern_crates);
-                extern_crate_rename(&mut use_path, &new_path, &extern_crates);
-
-                // Figure out the path to start with
-                let start_mod = if std_pkg.edition >= Edition::Edition2018 {
-                    new_path
-                } else {
-                    Path::from(vec![std_pkg.name().clone()])
-                };
-
-                // Now search for the element
-                let structs = struct_tree.resolve_use_path(&use_path, &start_mod);
-                let items_str = if !structs.is_empty() {
-                    structs.into_iter().map(|item| item.to_string()).collect()
-                } else {
-                    let modules = module_tree.resolve_use_path(&use_path, &start_mod);
-                    if !modules.is_empty() {
-                        modules.into_iter().map(|item| item.to_string()).collect()
-                    } else {
-                        Vec::new()
-                    }
-                };
+                let items = use_path_resolver.resolve(use_path, path);
+                let items_str: Vec<_> = items.iter().map(ResolvedUsePath::to_string).collect();
                 println!("    {} => [{}]", use_path, items_str.join(", "));
             }
         }
@@ -326,14 +307,97 @@ fn extern_crate_rename(
     use_path: &mut UsePath,
     module: &Path,
     extern_crates: &HashMap<Path, Vec<ExternCrate>>,
-) {
+) -> bool {
+    let mut changed = false;
     if let Some(extern_crates) = extern_crates.get(module) {
         for extern_crate in extern_crates {
             if let Some(rename) = extern_crate.rename() {
                 if use_path.begins_with(rename) {
                     use_path.replace_first(extern_crate.name());
+                    changed = true;
                 }
             }
+        }
+    }
+    changed
+}
+
+struct UsePathResolver<'tree> {
+    struct_tree: ItemTree<'tree, Struct>,
+    mod_tree: ItemTree<'tree, ModuleItem>,
+    extern_crates: HashMap<Path, Vec<ExternCrate>>,
+    edition: Edition,
+}
+
+impl<'tree> UsePathResolver<'tree> {
+    fn resolve(
+        &'tree self,
+        use_path: &UsePath,
+        containing_mod: &Path,
+    ) -> Vec<ResolvedUsePath<'tree>> {
+        if self.edition >= Edition::Edition2018 {
+            let mut use_path = use_path.clone();
+            if use_path.begins_with_empty() {
+                // Absolute path
+                use_path.remove_first();
+                let start_mod = Path::new(Vec::new());
+                self.resolve_internal(&use_path, &start_mod)
+            } else {
+                // First check locally
+                let start_mod = use_path.delocalize(containing_mod);
+                let items = self.resolve_internal(&use_path, &start_mod);
+                if !items.is_empty() {
+                    return items;
+                }
+                // Then check globally
+                let start_mod = Path::new(Vec::new());
+                let extern_renamed = extern_crate_rename(
+                    &mut use_path,
+                    &containing_mod.first_as_path(),
+                    &self.extern_crates,
+                );
+                if !extern_renamed {
+                    extern_crate_rename(&mut use_path, &containing_mod, &self.extern_crates);
+                }
+                self.resolve_internal(&use_path, &start_mod)
+            }
+        } else {
+            todo!("Handle 2015 edition path resolution")
+        }
+    }
+
+    fn resolve_internal(
+        &'tree self,
+        use_path: &UsePath,
+        start_mod: &Path,
+    ) -> Vec<ResolvedUsePath<'tree>> {
+        let mut items = Vec::new();
+        items.extend(
+            self.struct_tree
+                .resolve_use_path(use_path, start_mod)
+                .into_iter()
+                .map(|s| ResolvedUsePath::Struct(s)),
+        );
+        items.extend(
+            self.mod_tree
+                .resolve_use_path(use_path, start_mod)
+                .into_iter()
+                .map(|m| ResolvedUsePath::Module(m)),
+        );
+        items
+    }
+}
+
+enum ResolvedUsePath<'item> {
+    Struct(&'item Struct),
+    Module(&'item ModuleItem),
+}
+
+impl Display for ResolvedUsePath<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            &ResolvedUsePath::Struct(s) => write!(f, "{}", s),
+            &ResolvedUsePath::Module(m) => write!(f, "{}", m),
         }
     }
 }

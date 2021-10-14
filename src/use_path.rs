@@ -12,6 +12,7 @@ pub enum UsePathComponent {
     Name(String),
     Rename(String, String),
     Glob,
+    Empty,
 }
 
 impl UsePathComponent {
@@ -30,6 +31,7 @@ impl Display for UsePathComponent {
             UsePathComponent::Name(name) => write!(f, "{}", name),
             UsePathComponent::Rename(name, rename) => write!(f, "{} as {}", name, rename),
             UsePathComponent::Glob => write!(f, "*"),
+            UsePathComponent::Empty => write!(f, ""),
         }
     }
 }
@@ -100,6 +102,18 @@ impl UsePath {
             first.push_str(new_first);
         }
     }
+
+    pub fn begins_with_empty(&self) -> bool {
+        if let Some(first) = self.components().first() {
+            first == &UsePathComponent::Empty
+        } else {
+            false
+        }
+    }
+
+    pub fn remove_first(&mut self) {
+        self.path.remove(0);
+    }
 }
 
 impl Display for UsePath {
@@ -109,8 +123,8 @@ impl Display for UsePath {
     }
 }
 
-impl From<Vec<&'static str>> for UsePath {
-    fn from(comps: Vec<&'static str>) -> Self {
+impl From<Vec<&str>> for UsePath {
+    fn from(comps: Vec<&str>) -> Self {
         lazy_static! {
             static ref RENAME_REG: Regex = Regex::new(r"([\w\d_]+) as ([\w\d_]+)").unwrap();
         }
@@ -119,6 +133,8 @@ impl From<Vec<&'static str>> for UsePath {
             .map(|item| {
                 if item == "*" {
                     UsePathComponent::Glob
+                } else if item == "" {
+                    UsePathComponent::Empty
                 } else if let Some(captures) = RENAME_REG.captures(item) {
                     let from = String::from(&captures[1]);
                     let to = String::from(&captures[2]);
@@ -136,9 +152,17 @@ impl From<Vec<&'static str>> for UsePath {
 }
 
 fn use_paths_from_use_tree(tree: &syn::UseTree, vis: &Visibility) -> Vec<UsePath> {
+    fn name_to_component(s: String) -> UsePathComponent {
+        if s == "" {
+            UsePathComponent::Empty
+        } else {
+            UsePathComponent::Name(s)
+        }
+    }
+
     match tree {
         syn::UseTree::Path(path) => {
-            let first = UsePathComponent::Name(path.ident.to_string());
+            let first = name_to_component(path.ident.to_string());
             use_paths_from_use_tree(path.tree.as_ref(), vis)
                 .into_iter()
                 .map(|mut path| {
@@ -149,7 +173,7 @@ fn use_paths_from_use_tree(tree: &syn::UseTree, vis: &Visibility) -> Vec<UsePath
                 .collect()
         }
         syn::UseTree::Name(name) => vec![UsePath::new(
-            vec![UsePathComponent::Name(name.ident.to_string())],
+            vec![name_to_component(name.ident.to_string())],
             vis.clone(),
         )],
         syn::UseTree::Rename(rename) => vec![UsePath::new(
