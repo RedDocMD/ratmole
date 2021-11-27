@@ -3,6 +3,7 @@ use crate::{
     depgraph::DepGraph,
     error::{Error, Result},
     item::{
+        consts::{consts_from_items, Const},
         enums::{enums_from_items, Enum},
         extern_crate::{extern_crates_from_items, ExternCrate},
         module::modules_from_items,
@@ -239,19 +240,10 @@ pub fn std_lib_info() -> Result<()> {
     let mut extern_crates = things_in_package(&std_pkg, true, extern_crates_from_items)?;
     let mut modules = things_in_package(&std_pkg, true, modules_from_items)?;
     let mut enums = things_in_package(&std_pkg, true, enums_from_items)?;
+    let mut consts = things_in_package(&std_pkg, true, consts_from_items)?;
     let pkgs: Vec<_> = pkgs.into_iter().map(SimplePackage::from_cargo).collect();
 
-    let mut things = Vec::new();
-    pkgs.par_iter()
-        .map(|pkg| {
-            debug!("Exploring {}", pkg.name());
-            things_in_package(pkg, true, structs_from_items).unwrap()
-        })
-        .collect_into_vec(&mut things);
-    for things in things {
-        structs.extend(things);
-    }
-
+    // Structs
     let mut things = Vec::new();
     pkgs.par_iter()
         .map(|pkg| things_in_package(pkg, true, enums_from_items).unwrap())
@@ -260,6 +252,25 @@ pub fn std_lib_info() -> Result<()> {
         enums.extend(things);
     }
 
+    // Enums
+    let mut things = Vec::new();
+    pkgs.par_iter()
+        .map(|pkg| things_in_package(pkg, true, enums_from_items).unwrap())
+        .collect_into_vec(&mut things);
+    for things in things {
+        enums.extend(things);
+    }
+
+    // Consts
+    let mut things = Vec::new();
+    pkgs.par_iter()
+        .map(|pkg| things_in_package(pkg, true, consts_from_items).unwrap())
+        .collect_into_vec(&mut things);
+    for things in things {
+        consts.extend(things);
+    }
+
+    // Extern crates
     let mut things = Vec::new();
     pkgs.par_iter()
         .map(|pkg| things_in_package(pkg, true, extern_crates_from_items).unwrap())
@@ -268,6 +279,7 @@ pub fn std_lib_info() -> Result<()> {
         extern_crates.extend(thing);
     }
 
+    // Modules
     let mut things = Vec::new();
     pkgs.par_iter()
         .map(|pkg| things_in_package(pkg, true, modules_from_items).unwrap())
@@ -289,7 +301,10 @@ pub fn std_lib_info() -> Result<()> {
     // println!("STRUCT-TREE: \n{}", struct_tree);
     let enums_vec: Vec<_> = enums.into_values().flatten().collect();
     let enums_tree = ItemTree::new(&enums_vec);
-    println!("ENUM-TREE: \n{}", enums_tree);
+    // println!("ENUM-TREE: \n{}", enums_tree);
+    let consts_vec: Vec<_> = consts.into_values().flatten().collect();
+    let consts_tree = ItemTree::new(&consts_vec);
+    println!("CONST-TREE: \n{}", consts_tree);
     let modules_vec: Vec<_> = modules.into_values().flatten().collect();
     let module_tree = ItemTree::new(&modules_vec);
     // println!("MODULE-TREE: \n{}", module_tree);
@@ -297,6 +312,7 @@ pub fn std_lib_info() -> Result<()> {
     let use_path_resolver = UsePathResolver {
         struct_tree,
         enums_tree,
+        consts_tree,
         mod_tree: module_tree,
         extern_crates,
         edition: std_pkg.edition,
@@ -341,6 +357,7 @@ struct UsePathResolver<'tree> {
     mod_tree: ItemTree<'tree, ModuleItem>,
     extern_crates: HashMap<Path, Vec<ExternCrate>>,
     enums_tree: ItemTree<'tree, Enum>,
+    consts_tree: ItemTree<'tree, Const>,
     edition: Edition,
 }
 
@@ -400,6 +417,12 @@ impl<'tree> UsePathResolver<'tree> {
                 .map(|e| ResolvedUsePath::Enum(e)),
         );
         items.extend(
+            self.consts_tree
+                .resolve_use_path(use_path, start_mod)
+                .into_iter()
+                .map(|c| ResolvedUsePath::Const(c)),
+        );
+        items.extend(
             self.mod_tree
                 .resolve_use_path(use_path, start_mod)
                 .into_iter()
@@ -413,6 +436,7 @@ enum ResolvedUsePath<'item> {
     Struct(&'item Struct),
     Module(&'item ModuleItem),
     Enum(&'item Enum),
+    Const(&'item Const),
 }
 
 impl Display for ResolvedUsePath<'_> {
@@ -421,6 +445,7 @@ impl Display for ResolvedUsePath<'_> {
             ResolvedUsePath::Struct(s) => write!(f, "{}", s),
             ResolvedUsePath::Module(m) => write!(f, "{}", m),
             ResolvedUsePath::Enum(e) => write!(f, "{}", e),
+            ResolvedUsePath::Const(c) => write!(f, "{}", c),
         }
     }
 }
