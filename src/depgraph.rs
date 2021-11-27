@@ -93,28 +93,25 @@ impl DepGraph {
     }
 }
 
-fn rec_graph_create<'dep>(
+fn rec_graph_create(
     pkg: &DependentPackage,
     config: &Config,
     crates: &RefCell<HashMap<String, Crate>>,
     depth: i32,
 ) -> Result<Crate> {
     let mut bare_crate = Crate::bare_crate(pkg.clone());
-    let dep_pkgs = pkg.download_dependencies(&config, true)?;
+    let dep_pkgs = pkg.download_dependencies(config, true)?;
     for dep_pkg in &dep_pkgs {
         let dep_key = dep_pkg.to_string();
         let mut dep_crate = None;
-        let mut from_store = false;
         if let Some(existing_dep_crate) = crates.borrow_mut().get(&dep_key) {
             dep_crate = Some(existing_dep_crate.clone());
-            from_store = true;
         }
         if dep_crate.is_none() {
             let new_dep_crate = rec_graph_create(dep_pkg, config, crates, depth + 1)?;
             crates.borrow_mut().insert(dep_key, new_dep_crate.clone());
             dep_crate = Some(new_dep_crate);
         }
-        if from_store {}
         bare_crate.add_dependency(dep_crate.unwrap());
     }
     bare_crate.dependencies.sort();
