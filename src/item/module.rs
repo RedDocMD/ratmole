@@ -57,7 +57,7 @@ pub fn modules_from_items(items: &[syn::Item], module: &mut Path) -> HashMap<Pat
     let mut modules: HashMap<Path, Vec<Module>> = HashMap::new();
     let current_module = Module {
         path: module.clone(),
-        parent: module.parent().clone(),
+        parent: module.parent(),
         name: module.components().last().unwrap().to_string(),
     };
     if let Some(existing_modules) = modules.get_mut(&current_module.parent) {
@@ -66,29 +66,26 @@ pub fn modules_from_items(items: &[syn::Item], module: &mut Path) -> HashMap<Pat
         modules.insert(current_module.parent.clone(), vec![current_module]);
     }
     for item in items {
-        match item {
-            Item::Mod(item) => {
-                if item.content.is_some() {
-                    let parent = module.clone();
-                    module.push_name(item.ident.to_string());
-                    let new_module = Module {
-                        path: module.clone(),
-                        parent: parent.clone(),
-                        name: item.ident.to_string(),
-                    };
-                    if let Some(existing_modules) = modules.get_mut(&parent) {
-                        existing_modules.push(new_module);
-                    } else {
-                        modules.insert(parent, vec![new_module]);
-                    }
-                    if let Some((_, content)) = &item.content {
-                        let new_modules = modules_from_items(content, module);
-                        modules.extend(new_modules);
-                    }
-                    module.pop();
+        if let Item::Mod(item) = item {
+            if item.content.is_some() {
+                let parent = module.clone();
+                module.push_name(item.ident.to_string());
+                let new_module = Module {
+                    path: module.clone(),
+                    parent: parent.clone(),
+                    name: item.ident.to_string(),
+                };
+                if let Some(existing_modules) = modules.get_mut(&parent) {
+                    existing_modules.push(new_module);
+                } else {
+                    modules.insert(parent, vec![new_module]);
                 }
+                if let Some((_, content)) = &item.content {
+                    let new_modules = modules_from_items(content, module);
+                    modules.extend(new_modules);
+                }
+                module.pop();
             }
-            _ => {}
         }
     }
     modules

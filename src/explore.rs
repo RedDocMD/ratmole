@@ -304,7 +304,7 @@ pub fn std_lib_info() -> Result<()> {
     // println!("ENUM-TREE: \n{}", enums_tree);
     let consts_vec: Vec<_> = consts.into_values().flatten().collect();
     let consts_tree = ItemTree::new(&consts_vec);
-    println!("CONST-TREE: \n{}", consts_tree);
+    // println!("CONST-TREE: \n{}", consts_tree);
     let modules_vec: Vec<_> = modules.into_values().flatten().collect();
     let module_tree = ItemTree::new(&modules_vec);
     // println!("MODULE-TREE: \n{}", module_tree);

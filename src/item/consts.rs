@@ -1,10 +1,10 @@
+use crate::from_items;
 use crate::printer::TreePrintable;
 use crate::tree::TreeItem;
 
 use super::structs::{Path, Visibility};
 use colored::*;
 
-use std::collections::HashMap;
 use std::fmt::{self, Display, Formatter};
 
 #[derive(Debug, Clone)]
@@ -54,29 +54,4 @@ impl Const {
     }
 }
 
-pub fn consts_from_items(items: &[syn::Item], module: &mut Path) -> HashMap<Path, Vec<Const>> {
-    use syn::Item;
-    let mut consts: HashMap<Path, Vec<Const>> = HashMap::new();
-    for item in items {
-        match item {
-            Item::Const(item) => {
-                let s = Const::from_syn(item, module.clone());
-                if let Some(existing_consts) = consts.get_mut(module) {
-                    existing_consts.push(s);
-                } else {
-                    consts.insert(module.clone(), vec![s]);
-                }
-            }
-            Item::Mod(item) => {
-                module.push_name(item.ident.to_string());
-                if let Some((_, content)) = &item.content {
-                    let new_consts = consts_from_items(content, module);
-                    consts.extend(new_consts);
-                }
-                module.pop();
-            }
-            _ => {}
-        }
-    }
-    consts
-}
+from_items!(consts_from_items, Const, Const);

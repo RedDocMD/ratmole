@@ -1,11 +1,8 @@
 use colored::*;
 
-use std::{
-    collections::HashMap,
-    fmt::{self, Display, Formatter},
-};
+use std::fmt::{self, Display, Formatter};
 
-use crate::{printer::TreePrintable, tree::TreeItem};
+use crate::{from_items, printer::TreePrintable, tree::TreeItem};
 
 #[derive(Debug, Clone)]
 pub struct Struct {
@@ -216,29 +213,4 @@ impl Visibility {
     }
 }
 
-pub fn structs_from_items(items: &[syn::Item], module: &mut Path) -> HashMap<Path, Vec<Struct>> {
-    use syn::Item;
-    let mut structs: HashMap<Path, Vec<Struct>> = HashMap::new();
-    for item in items {
-        match item {
-            Item::Struct(item) => {
-                let s = Struct::from_syn(item, module.clone());
-                if let Some(existing_structs) = structs.get_mut(module) {
-                    existing_structs.push(s);
-                } else {
-                    structs.insert(module.clone(), vec![s]);
-                }
-            }
-            Item::Mod(item) => {
-                module.push_name(item.ident.to_string());
-                if let Some((_, content)) = &item.content {
-                    let new_structs = structs_from_items(content, module);
-                    structs.extend(new_structs);
-                }
-                module.pop();
-            }
-            _ => {}
-        }
-    }
-    structs
-}
+from_items!(structs_from_items, Struct, Struct);

@@ -1,11 +1,8 @@
 use colored::*;
 
-use std::{
-    collections::HashMap,
-    fmt::{self, Display, Formatter},
-};
+use std::fmt::{self, Display, Formatter};
 
-use crate::{printer::TreePrintable, tree::TreeItem};
+use crate::{from_items, printer::TreePrintable, tree::TreeItem};
 
 use super::structs::{Path, Visibility};
 
@@ -85,29 +82,4 @@ impl Enum {
     }
 }
 
-pub fn enums_from_items(items: &[syn::Item], module: &mut Path) -> HashMap<Path, Vec<Enum>> {
-    use syn::Item;
-    let mut enums: HashMap<Path, Vec<Enum>> = HashMap::new();
-    for item in items {
-        match item {
-            Item::Enum(item) => {
-                let s = Enum::from_syn(item, module.clone());
-                if let Some(existing_enums) = enums.get_mut(module) {
-                    existing_enums.push(s);
-                } else {
-                    enums.insert(module.clone(), vec![s]);
-                }
-            }
-            Item::Mod(item) => {
-                module.push_name(item.ident.to_string());
-                if let Some((_, content)) = &item.content {
-                    let new_enums = enums_from_items(content, module);
-                    enums.extend(new_enums);
-                }
-                module.pop();
-            }
-            _ => {}
-        }
-    }
-    enums
-}
+from_items!(enums_from_items, Enum, Enum);

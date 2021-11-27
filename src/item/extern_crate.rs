@@ -1,14 +1,12 @@
-use std::{
-    collections::HashMap,
-    fmt::{self, Display, Formatter},
-};
+use std::fmt::{self, Display, Formatter};
+
+use crate::from_items;
 
 use super::structs::{Path, Visibility};
 
 pub struct ExternCrate {
     name: String,
     rename: Option<String>,
-    module: Path,
     vis: Visibility,
 }
 
@@ -23,6 +21,14 @@ impl Display for ExternCrate {
 }
 
 impl ExternCrate {
+    fn from_syn(item: &syn::ItemExternCrate, _module: Path) -> Self {
+        Self {
+            name: item.ident.to_string(),
+            vis: Visibility::from_syn(&item.vis),
+            rename: item.rename.as_ref().map(|(_, name)| name.to_string()),
+        }
+    }
+
     pub fn rename(&self) -> &Option<String> {
         &self.rename
     }
@@ -32,36 +38,4 @@ impl ExternCrate {
     }
 }
 
-pub fn extern_crates_from_items(
-    items: &[syn::Item],
-    module: &mut Path,
-) -> HashMap<Path, Vec<ExternCrate>> {
-    let mut extern_crates_map: HashMap<Path, Vec<ExternCrate>> = HashMap::new();
-    for item in items {
-        match item {
-            syn::Item::ExternCrate(item) => {
-                let new_crate = ExternCrate {
-                    name: item.ident.to_string(),
-                    vis: Visibility::from_syn(&item.vis),
-                    module: module.clone(),
-                    rename: item.rename.as_ref().map(|(_, name)| name.to_string()),
-                };
-                if let Some(existing_crates) = extern_crates_map.get_mut(module) {
-                    existing_crates.push(new_crate);
-                } else {
-                    extern_crates_map.insert(module.clone(), vec![new_crate]);
-                }
-            }
-            syn::Item::Mod(item) => {
-                if let Some((_, items)) = item.content.as_ref() {
-                    module.push_name(item.ident.to_string());
-                    let new_crates = extern_crates_from_items(items, module);
-                    extern_crates_map.extend(new_crates);
-                    module.pop();
-                }
-            }
-            _ => {}
-        }
-    }
-    extern_crates_map
-}
+from_items!(extern_crates_from_items, ExternCrate, ExternCrate);
