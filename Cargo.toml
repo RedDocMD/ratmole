@@ -13,14 +13,14 @@ log = "0.4.14"
 colored = "2.0.0"
 quick-error = "2.0.1"
 toml = "0.5.8"
-semver = "1.0.3"
+semver = { version = "1.0.3", default-features = false }
 cargo = "0.56.0"
 cargo-platform = "0.1.2"
-anyhow = "1.0.42"
+anyhow = { version = "1.0.42", default-features = false }
 rayon = "1.5.1"
 regex = "1.5.4"
 lazy_static = "1.4"
-git2 = "0.13.23"
+git2 = { version = "0.13.23", default-features = false, features = ["https"] }
 home = "0.5.3"
 
 [dev-dependencies]
