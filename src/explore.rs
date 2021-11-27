@@ -3,6 +3,7 @@ use crate::{
     depgraph::DepGraph,
     error::{Error, Result},
     item::{
+        enums::{enums_from_items, Enum},
         extern_crate::{extern_crates_from_items, ExternCrate},
         module::modules_from_items,
         module::Module as ModuleItem,
@@ -231,12 +232,13 @@ pub fn std_lib_info() -> Result<()> {
     let pkgs = download_package_deps(&std_pkg, &config)?;
 
     let dep_graph = DepGraph::new(std_repo.crate_path())?;
-    println!("DEP-GRAPH:\n{}", dep_graph);
+    // println!("DEP-GRAPH:\n{}", dep_graph);
 
     let std_pkg = SimplePackage::from_cargo(std_pkg);
     let mut structs = things_in_package(&std_pkg, true, structs_from_items)?;
     let mut extern_crates = things_in_package(&std_pkg, true, extern_crates_from_items)?;
     let mut modules = things_in_package(&std_pkg, true, modules_from_items)?;
+    let mut enums = things_in_package(&std_pkg, true, enums_from_items)?;
     let pkgs: Vec<_> = pkgs.into_iter().map(SimplePackage::from_cargo).collect();
 
     let mut things = Vec::new();
@@ -248,6 +250,14 @@ pub fn std_lib_info() -> Result<()> {
         .collect_into_vec(&mut things);
     for things in things {
         structs.extend(things);
+    }
+
+    let mut things = Vec::new();
+    pkgs.par_iter()
+        .map(|pkg| things_in_package(pkg, true, enums_from_items).unwrap())
+        .collect_into_vec(&mut things);
+    for things in things {
+        enums.extend(things);
     }
 
     let mut things = Vec::new();
@@ -266,23 +276,27 @@ pub fn std_lib_info() -> Result<()> {
         modules.extend(thing);
     }
 
-    println!("EXTERN-CRATES");
-    for (path, crates) in &extern_crates {
-        println!("{}", path.to_string().red());
-        for c in crates {
-            println!("    {}", c);
-        }
-    }
+    // println!("EXTERN-CRATES");
+    // for (path, crates) in &extern_crates {
+    //     println!("{}", path.to_string().red());
+    //     for c in crates {
+    //         println!("    {}", c);
+    //     }
+    // }
 
-    let structs_vec = structs.into_values().flatten().collect::<Vec<_>>();
+    let structs_vec: Vec<_> = structs.into_values().flatten().collect();
     let struct_tree = ItemTree::new(&structs_vec);
-    println!("STRUCT-TREE: \n{}", struct_tree);
-    let modules_vec = modules.into_values().flatten().collect::<Vec<_>>();
+    // println!("STRUCT-TREE: \n{}", struct_tree);
+    let enums_vec: Vec<_> = enums.into_values().flatten().collect();
+    let enums_tree = ItemTree::new(&enums_vec);
+    println!("ENUM-TREE: \n{}", enums_tree);
+    let modules_vec: Vec<_> = modules.into_values().flatten().collect();
     let module_tree = ItemTree::new(&modules_vec);
-    println!("MODULE-TREE: \n{}", module_tree);
+    // println!("MODULE-TREE: \n{}", module_tree);
 
     let use_path_resolver = UsePathResolver {
-        struct_tree: struct_tree,
+        struct_tree,
+        enums_tree,
         mod_tree: module_tree,
         extern_crates,
         edition: std_pkg.edition,
@@ -326,6 +340,7 @@ struct UsePathResolver<'tree> {
     struct_tree: ItemTree<'tree, Struct>,
     mod_tree: ItemTree<'tree, ModuleItem>,
     extern_crates: HashMap<Path, Vec<ExternCrate>>,
+    enums_tree: ItemTree<'tree, Enum>,
     edition: Edition,
 }
 
@@ -357,7 +372,7 @@ impl<'tree> UsePathResolver<'tree> {
                     &self.extern_crates,
                 );
                 if !extern_renamed {
-                    extern_crate_rename(&mut use_path, &containing_mod, &self.extern_crates);
+                    extern_crate_rename(&mut use_path, containing_mod, &self.extern_crates);
                 }
                 self.resolve_internal(&use_path, &start_mod)
             }
@@ -379,6 +394,12 @@ impl<'tree> UsePathResolver<'tree> {
                 .map(|s| ResolvedUsePath::Struct(s)),
         );
         items.extend(
+            self.enums_tree
+                .resolve_use_path(use_path, start_mod)
+                .into_iter()
+                .map(|e| ResolvedUsePath::Enum(e)),
+        );
+        items.extend(
             self.mod_tree
                 .resolve_use_path(use_path, start_mod)
                 .into_iter()
@@ -391,13 +412,15 @@ impl<'tree> UsePathResolver<'tree> {
 enum ResolvedUsePath<'item> {
     Struct(&'item Struct),
     Module(&'item ModuleItem),
+    Enum(&'item Enum),
 }
 
 impl Display for ResolvedUsePath<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            &ResolvedUsePath::Struct(s) => write!(f, "{}", s),
-            &ResolvedUsePath::Module(m) => write!(f, "{}", m),
+        match *self {
+            ResolvedUsePath::Struct(s) => write!(f, "{}", s),
+            ResolvedUsePath::Module(m) => write!(f, "{}", m),
+            ResolvedUsePath::Enum(e) => write!(f, "{}", e),
         }
     }
 }
