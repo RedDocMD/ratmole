@@ -12,7 +12,7 @@ use crate::{
         types::{type_aliases_from_items, TypeAlias},
     },
     stdlib::StdRepo,
-    tree::ItemTree,
+    tree::{ItemTree, TreeItem},
     use_path::{use_paths_from_items, UsePath},
 };
 use cargo::{
@@ -236,68 +236,55 @@ pub fn std_lib_info() -> Result<()> {
     let dep_graph = DepGraph::new(std_repo.crate_path())?;
     // println!("DEP-GRAPH:\n{}", dep_graph);
 
+    fn things_in_package_rec<R, F>(
+        pkg: &SimplePackage,
+        sub_pkgs: &[SimplePackage],
+        gen: F,
+    ) -> Result<Vec<R>>
+    where
+        F: Fn(&[syn::Item], &mut Path) -> HashMap<Path, Vec<R>> + Sync + Send + Copy,
+        R: Send,
+    {
+        let things = mapped_things_in_package_rec(pkg, sub_pkgs, gen)?;
+        Ok(things.into_values().flatten().collect())
+    }
+
+    fn mapped_things_in_package_rec<R, F>(
+        pkg: &SimplePackage,
+        sub_pkgs: &[SimplePackage],
+        gen: F,
+    ) -> Result<HashMap<Path, Vec<R>>>
+    where
+        F: Fn(&[syn::Item], &mut Path) -> HashMap<Path, Vec<R>> + Sync + Send + Copy,
+        R: Send,
+    {
+        let mut things = things_in_package(pkg, true, gen)?;
+        let mut acc = Vec::new();
+        sub_pkgs
+            .par_iter()
+            .map(|p| things_in_package(p, true, gen).unwrap())
+            .collect_into_vec(&mut acc);
+        for thing in acc {
+            things.extend(thing);
+        }
+        Ok(things)
+    }
+
     let std_pkg = SimplePackage::from_cargo(std_pkg);
-    let mut structs = things_in_package(&std_pkg, true, structs_from_items)?;
-    let mut extern_crates = things_in_package(&std_pkg, true, extern_crates_from_items)?;
-    let mut modules = things_in_package(&std_pkg, true, modules_from_items)?;
-    let mut enums = things_in_package(&std_pkg, true, enums_from_items)?;
-    let mut consts = things_in_package(&std_pkg, true, consts_from_items)?;
-    let mut type_aliases = things_in_package(&std_pkg, true, type_aliases_from_items)?;
     let pkgs: Vec<_> = pkgs.into_iter().map(SimplePackage::from_cargo).collect();
 
-    // Structs
-    let mut things = Vec::new();
-    pkgs.par_iter()
-        .map(|pkg| things_in_package(pkg, true, structs_from_items).unwrap())
-        .collect_into_vec(&mut things);
-    for things in things {
-        structs.extend(things);
-    }
+    let structs = things_in_package_rec(&std_pkg, &pkgs, structs_from_items)?;
+    let enums = things_in_package_rec(&std_pkg, &pkgs, enums_from_items)?;
+    let consts = things_in_package_rec(&std_pkg, &pkgs, consts_from_items)?;
+    let type_aliases = things_in_package_rec(&std_pkg, &pkgs, type_aliases_from_items)?;
+    let modules = things_in_package_rec(&std_pkg, &pkgs, modules_from_items)?;
+    let extern_crates = mapped_things_in_package_rec(&std_pkg, &pkgs, extern_crates_from_items)?;
 
-    // Enums
-    let mut things = Vec::new();
-    pkgs.par_iter()
-        .map(|pkg| things_in_package(pkg, true, enums_from_items).unwrap())
-        .collect_into_vec(&mut things);
-    for things in things {
-        enums.extend(things);
-    }
-
-    // Consts
-    let mut things = Vec::new();
-    pkgs.par_iter()
-        .map(|pkg| things_in_package(pkg, true, consts_from_items).unwrap())
-        .collect_into_vec(&mut things);
-    for things in things {
-        consts.extend(things);
-    }
-
-    // Type Aliases
-    let mut things = Vec::new();
-    pkgs.par_iter()
-        .map(|pkg| things_in_package(pkg, true, type_aliases_from_items).unwrap())
-        .collect_into_vec(&mut things);
-    for things in things {
-        type_aliases.extend(things);
-    }
-
-    // Extern crates
-    let mut things = Vec::new();
-    pkgs.par_iter()
-        .map(|pkg| things_in_package(pkg, true, extern_crates_from_items).unwrap())
-        .collect_into_vec(&mut things);
-    for thing in things {
-        extern_crates.extend(thing);
-    }
-
-    // Modules
-    let mut things = Vec::new();
-    pkgs.par_iter()
-        .map(|pkg| things_in_package(pkg, true, modules_from_items).unwrap())
-        .collect_into_vec(&mut things);
-    for thing in things {
-        modules.extend(thing);
-    }
+    let structs_tree = ItemTree::new(&structs);
+    let enums_tree = ItemTree::new(&enums);
+    let consts_tree = ItemTree::new(&consts);
+    let type_aliases_tree = ItemTree::new(&type_aliases);
+    let module_tree = ItemTree::new(&modules);
 
     // println!("EXTERN-CRATES");
     // for (path, crates) in &extern_crates {
@@ -307,24 +294,14 @@ pub fn std_lib_info() -> Result<()> {
     //     }
     // }
 
-    let structs_vec: Vec<_> = structs.into_values().flatten().collect();
-    let struct_tree = ItemTree::new(&structs_vec);
     // println!("STRUCT-TREE: \n{}", struct_tree);
-    let enums_vec: Vec<_> = enums.into_values().flatten().collect();
-    let enums_tree = ItemTree::new(&enums_vec);
     // println!("ENUM-TREE: \n{}", enums_tree);
-    let consts_vec: Vec<_> = consts.into_values().flatten().collect();
-    let consts_tree = ItemTree::new(&consts_vec);
     // println!("CONST-TREE: \n{}", consts_tree);
-    let type_aliases_vec: Vec<_> = type_aliases.into_values().flatten().collect();
-    let type_aliases_tree = ItemTree::new(&type_aliases_vec);
     // println!("TYPE-ALIAS-TREE: \n{}", type_aliases_tree);
-    let modules_vec: Vec<_> = modules.into_values().flatten().collect();
-    let module_tree = ItemTree::new(&modules_vec);
     // println!("MODULE-TREE: \n{}", module_tree);
 
     let use_path_resolver = UsePathResolver {
-        struct_tree,
+        structs_tree,
         enums_tree,
         consts_tree,
         type_aliases_tree,
@@ -335,12 +312,12 @@ pub fn std_lib_info() -> Result<()> {
 
     let std_use_paths = things_in_package(&std_pkg, true, use_paths_from_items)?;
     for (path, use_paths) in &std_use_paths {
-        // println!("{}", path.to_string().red());
+        println!("{}", path.to_string().red());
         for use_path in use_paths {
             if matches!(use_path.visibility(), Visibility::Public) {
                 let items = use_path_resolver.resolve(use_path, path);
                 let items_str: Vec<_> = items.iter().map(ResolvedUsePath::to_string).collect();
-                // println!("    {} => [{}]", use_path, items_str.join(", "));
+                println!("    {} => [{}]", use_path, items_str.join(", "));
             }
         }
     }
@@ -368,7 +345,7 @@ fn extern_crate_rename(
 }
 
 struct UsePathResolver<'tree> {
-    struct_tree: ItemTree<'tree, Struct>,
+    structs_tree: ItemTree<'tree, Struct>,
     mod_tree: ItemTree<'tree, ModuleItem>,
     extern_crates: HashMap<Path, Vec<ExternCrate>>,
     enums_tree: ItemTree<'tree, Enum>,
@@ -421,7 +398,7 @@ impl<'tree> UsePathResolver<'tree> {
     ) -> Vec<ResolvedUsePath<'tree>> {
         let mut items = Vec::new();
         items.extend(
-            self.struct_tree
+            self.structs_tree
                 .resolve_use_path(use_path, start_mod)
                 .into_iter()
                 .map(|s| ResolvedUsePath::Struct(s)),
@@ -535,7 +512,7 @@ where
 
 fn things_from_submodules<F, R>(module: &Module<'_>, gen: F) -> Result<HashMap<Path, Vec<R>>>
 where
-    F: Fn(&[syn::Item], &mut Path) -> HashMap<Path, Vec<R>> + Sync + Send + Clone,
+    F: Fn(&[syn::Item], &mut Path) -> HashMap<Path, Vec<R>> + Sync + Send + Copy,
     R: Send,
 {
     debug!("Exploring module {}", module);
@@ -562,7 +539,7 @@ where
     sub_mods
         .par_iter()
         .map(|sub_mod| {
-            things_from_submodules(sub_mod, gen.clone()).unwrap_or_else(|_| {
+            things_from_submodules(sub_mod, gen).unwrap_or_else(|_| {
                 warn!("failed to recurse into {}", sub_mod.rust_path);
                 HashMap::new()
             })
