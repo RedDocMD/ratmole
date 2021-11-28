@@ -18,9 +18,10 @@ impl Display for Const {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{}{} {}",
+            "{}{} {}::{}",
             self.vis.to_string().magenta(),
             "const".green(),
+            self.module,
             self.name
         )
     }

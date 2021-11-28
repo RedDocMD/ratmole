@@ -3,6 +3,7 @@ pub mod enums;
 pub mod extern_crate;
 pub mod module;
 pub mod structs;
+pub mod types;
 
 #[macro_export]
 macro_rules! from_items {

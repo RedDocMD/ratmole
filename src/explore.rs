@@ -9,6 +9,7 @@ use crate::{
         module::modules_from_items,
         module::Module as ModuleItem,
         structs::{structs_from_items, Path, Struct, Visibility},
+        types::{type_aliases_from_items, TypeAlias},
     },
     stdlib::StdRepo,
     tree::ItemTree,
@@ -33,7 +34,7 @@ use syn::{parenthesized, parse::Parse, token, Item, LitStr, Token};
 fn things_from_file<T, F, R>(
     file_path: T,
     mut module: crate::item::structs::Path,
-    f: F,
+    gen: F,
 ) -> Result<Option<R>>
 where
     T: AsRef<StdPath>,
@@ -44,7 +45,7 @@ where
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
     match syn::parse_file(&contents) {
-        Ok(ast) => Ok(Some(f(&ast.items, &mut module))),
+        Ok(ast) => Ok(Some(gen(&ast.items, &mut module))),
         Err(err) => {
             warn!("{}", err);
             Ok(None)
@@ -241,6 +242,7 @@ pub fn std_lib_info() -> Result<()> {
     let mut modules = things_in_package(&std_pkg, true, modules_from_items)?;
     let mut enums = things_in_package(&std_pkg, true, enums_from_items)?;
     let mut consts = things_in_package(&std_pkg, true, consts_from_items)?;
+    let mut type_aliases = things_in_package(&std_pkg, true, type_aliases_from_items)?;
     let pkgs: Vec<_> = pkgs.into_iter().map(SimplePackage::from_cargo).collect();
 
     // Structs
@@ -268,6 +270,15 @@ pub fn std_lib_info() -> Result<()> {
         .collect_into_vec(&mut things);
     for things in things {
         consts.extend(things);
+    }
+
+    // Type Aliases
+    let mut things = Vec::new();
+    pkgs.par_iter()
+        .map(|pkg| things_in_package(pkg, true, type_aliases_from_items).unwrap())
+        .collect_into_vec(&mut things);
+    for things in things {
+        type_aliases.extend(things);
     }
 
     // Extern crates
@@ -305,6 +316,9 @@ pub fn std_lib_info() -> Result<()> {
     let consts_vec: Vec<_> = consts.into_values().flatten().collect();
     let consts_tree = ItemTree::new(&consts_vec);
     // println!("CONST-TREE: \n{}", consts_tree);
+    let type_aliases_vec: Vec<_> = type_aliases.into_values().flatten().collect();
+    let type_aliases_tree = ItemTree::new(&type_aliases_vec);
+    // println!("TYPE-ALIAS-TREE: \n{}", type_aliases_tree);
     let modules_vec: Vec<_> = modules.into_values().flatten().collect();
     let module_tree = ItemTree::new(&modules_vec);
     // println!("MODULE-TREE: \n{}", module_tree);
@@ -313,6 +327,7 @@ pub fn std_lib_info() -> Result<()> {
         struct_tree,
         enums_tree,
         consts_tree,
+        type_aliases_tree,
         mod_tree: module_tree,
         extern_crates,
         edition: std_pkg.edition,
@@ -358,6 +373,7 @@ struct UsePathResolver<'tree> {
     extern_crates: HashMap<Path, Vec<ExternCrate>>,
     enums_tree: ItemTree<'tree, Enum>,
     consts_tree: ItemTree<'tree, Const>,
+    type_aliases_tree: ItemTree<'tree, TypeAlias>,
     edition: Edition,
 }
 
@@ -423,6 +439,12 @@ impl<'tree> UsePathResolver<'tree> {
                 .map(|c| ResolvedUsePath::Const(c)),
         );
         items.extend(
+            self.type_aliases_tree
+                .resolve_use_path(use_path, start_mod)
+                .into_iter()
+                .map(|ta| ResolvedUsePath::TypeAlias(ta)),
+        );
+        items.extend(
             self.mod_tree
                 .resolve_use_path(use_path, start_mod)
                 .into_iter()
@@ -437,6 +459,7 @@ enum ResolvedUsePath<'item> {
     Module(&'item ModuleItem),
     Enum(&'item Enum),
     Const(&'item Const),
+    TypeAlias(&'item TypeAlias),
 }
 
 impl Display for ResolvedUsePath<'_> {
@@ -446,6 +469,7 @@ impl Display for ResolvedUsePath<'_> {
             ResolvedUsePath::Module(m) => write!(f, "{}", m),
             ResolvedUsePath::Enum(e) => write!(f, "{}", e),
             ResolvedUsePath::Const(c) => write!(f, "{}", c),
+            ResolvedUsePath::TypeAlias(ta) => write!(f, "{}", ta),
         }
     }
 }
