@@ -15,13 +15,11 @@ use colored::*;
 use log::debug;
 use semver::Version;
 use std::{
-    array::IntoIter as ArrayIntoIter,
     cmp::Ordering,
-    collections::HashSet,
     fmt::{self, Display, Formatter},
     fs::File,
+    hash::Hash,
     io::Read,
-    iter::FromIterator,
     path::{self, PathBuf},
     rc::Rc,
     result::Result as StdResult,
@@ -67,10 +65,10 @@ pub fn download_package_deps(pkg: &Package, config: &Config) -> Result<Vec<Packa
     download_dependencies(pkg.dependencies(), config)
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Eq)]
 pub struct DependentPackage {
     package: Package,
-    enabled_features: HashSet<FeatureValue>,
+    enabled_features: Vec<FeatureValue>,
 }
 
 impl Ord for DependentPackage {
@@ -85,20 +83,35 @@ impl PartialOrd for DependentPackage {
     }
 }
 
+impl Hash for DependentPackage {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.package.hash(state);
+        for feat in &self.enabled_features {
+            feat.hash(state);
+        }
+    }
+}
+
+impl PartialEq for DependentPackage {
+    fn eq(&self, rhs: &DependentPackage) -> bool {
+        self.package == rhs.package && self.enabled_features == rhs.enabled_features
+    }
+}
+
 impl DependentPackage {
     fn from_cargo(pkg: Package, pkg_parent: &Self, pkg_dep: &Dependency) -> Self {
         let name = pkg_dep.name_in_toml();
         let feature_map = pkg.summary().features();
-        let features_from_dep: HashSet<_> = pkg_dep
+        let features_from_dep: Vec<_> = pkg_dep
             .features()
             .iter()
             .map(|feat_name| {
-                let feature = FeatureValue::Feature(feat_name.clone());
-                transitive_features(&feature, &feature_map)
+                let feature = FeatureValue::Feature(*feat_name);
+                transitive_features(&feature, feature_map)
             })
             .flatten()
             .collect();
-        let features_from_parent: HashSet<_> = pkg_parent
+        let features_from_parent = pkg_parent
             .enabled_features
             .iter()
             .filter_map(|feat| match feat {
@@ -108,19 +121,18 @@ impl DependentPackage {
                     weak: _,
                 } => {
                     if dep_name == &name {
-                        let feature = FeatureValue::Feature(dep_feature.clone());
-                        Some(transitive_features(&feature, &feature_map))
+                        let feature = FeatureValue::Feature(*dep_feature);
+                        Some(transitive_features(&feature, feature_map))
                     } else {
                         None
                     }
                 }
                 _ => None,
             })
-            .flatten()
-            .collect();
+            .flatten();
 
         let mut enabled_features = features_from_dep;
-        enabled_features.extend(features_from_parent.into_iter());
+        enabled_features.extend(features_from_parent);
         if pkg_dep.uses_default_features() {
             let default_features = default_features(&pkg);
             enabled_features.extend(default_features.into_iter());
@@ -192,7 +204,7 @@ impl DependentPackage {
 
         let mut dep_pkgs = Vec::new();
         for dep in self.dependencies() {
-            let pkg = download_dependency(dep, &config, &crates_io_id, crates_io.as_mut())?;
+            let pkg = download_dependency(dep, config, &crates_io_id, crates_io.as_mut())?;
             let dep_pkg = Self::from_cargo(pkg, self, dep);
             dep_pkgs.push(dep_pkg);
         }
@@ -214,19 +226,19 @@ impl Display for DependentPackage {
     }
 }
 
-fn default_features(package: &Package) -> HashSet<FeatureValue> {
+fn default_features(package: &Package) -> Vec<FeatureValue> {
     let feature_map = package.summary().features();
     let default_feature_string: InternedString = InternedString::new("default");
-    let default_feature: FeatureValue = FeatureValue::Feature(default_feature_string.clone());
+    let default_feature: FeatureValue = FeatureValue::Feature(default_feature_string);
     if feature_map.contains_key(&default_feature_string) {
         transitive_features(&default_feature, feature_map)
     } else {
-        HashSet::new()
+        Vec::new()
     }
 }
 
-fn transitive_features(feature: &FeatureValue, feature_map: &FeatureMap) -> HashSet<FeatureValue> {
-    let mut features = HashSet::from_iter(ArrayIntoIter::new([feature.clone()]));
+fn transitive_features(feature: &FeatureValue, feature_map: &FeatureMap) -> Vec<FeatureValue> {
+    let mut features = vec![feature.clone()];
     if let FeatureValue::Feature(feat_str) = feature {
         if let Some(sub_features) = feature_map.get(feat_str) {
             features.extend(

@@ -1,8 +1,9 @@
 use std::{
     cell::RefCell,
     cmp::Ordering,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::{self, Display, Formatter},
+    iter::FromIterator,
     path::Path as StdPath,
 };
 
@@ -31,6 +32,15 @@ impl Crate {
     // Assumption: dep isn't already a dependency
     fn add_dependency(&mut self, dep: Crate) {
         self.dependencies.push(dep);
+    }
+
+    // Current package and all unique dependencies
+    fn sub_crates(&self) -> HashSet<&DependentPackage> {
+        let mut pkgs = HashSet::from_iter([&self.pkg]);
+        for dep in &self.dependencies {
+            pkgs.extend(dep.sub_crates());
+        }
+        pkgs
     }
 }
 
@@ -90,6 +100,10 @@ impl DepGraph {
         Ok(DepGraph {
             root: rec_graph_create(&root_pkg, &config, &crates, 0)?,
         })
+    }
+
+    pub fn crates(&self) -> HashSet<&DependentPackage> {
+        self.root.sub_crates()
     }
 }
 

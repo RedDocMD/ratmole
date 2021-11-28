@@ -335,12 +335,12 @@ pub fn std_lib_info() -> Result<()> {
 
     let std_use_paths = things_in_package(&std_pkg, true, use_paths_from_items)?;
     for (path, use_paths) in &std_use_paths {
-        println!("{}", path.to_string().red());
+        // println!("{}", path.to_string().red());
         for use_path in use_paths {
             if matches!(use_path.visibility(), Visibility::Public) {
                 let items = use_path_resolver.resolve(use_path, path);
                 let items_str: Vec<_> = items.iter().map(ResolvedUsePath::to_string).collect();
-                println!("    {} => [{}]", use_path, items_str.join(", "));
+                // println!("    {} => [{}]", use_path, items_str.join(", "));
             }
         }
     }
