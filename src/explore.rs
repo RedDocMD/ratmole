@@ -248,10 +248,10 @@ pub fn std_lib_info() -> Result<()> {
     // Structs
     let mut things = Vec::new();
     pkgs.par_iter()
-        .map(|pkg| things_in_package(pkg, true, enums_from_items).unwrap())
+        .map(|pkg| things_in_package(pkg, true, structs_from_items).unwrap())
         .collect_into_vec(&mut things);
     for things in things {
-        enums.extend(things);
+        structs.extend(things);
     }
 
     // Enums
