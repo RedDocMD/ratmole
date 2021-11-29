@@ -75,4 +75,33 @@ impl<'pkg> Dag<'pkg> {
         writeln!(file, "}}")?;
         Ok(())
     }
+
+    pub fn topological_order(&self) -> Vec<&DependentPackage> {
+        let mut visited: HashMap<_, _> = self.nodes.iter().map(|n| (n.pkg, false)).collect();
+        let node_map: HashMap<_, _> = self.nodes.iter().map(|n| (n.pkg, n)).collect();
+        let mut pkg_order = Vec::new();
+
+        fn toposort_rec<'pkg, 'node>(
+            node: &'node Node<'pkg>,
+            visited: &mut HashMap<&'node DependentPackage, bool>,
+            node_map: &HashMap<&'node DependentPackage, &'node Node<'pkg>>,
+            pkg_order: &mut Vec<&'node DependentPackage>,
+        ) {
+            visited.insert(node.pkg, true);
+            for dep in &node.dependents {
+                if !visited[dep] {
+                    toposort_rec(node_map[dep], visited, node_map, pkg_order);
+                }
+            }
+            pkg_order.push(node.pkg);
+        }
+
+        for node in &self.nodes {
+            if !visited[&node.pkg] {
+                toposort_rec(node, &mut visited, &node_map, &mut pkg_order);
+            }
+        }
+        pkg_order.reverse();
+        pkg_order
+    }
 }

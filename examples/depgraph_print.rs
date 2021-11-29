@@ -31,5 +31,10 @@ fn main() -> Result<(), Error> {
     let dot_path = &args[2];
     let mut dot_file = File::create(dot_path)?;
     dag.dump_graphviz(&mut dot_file)?;
+    let crates_topo = dag.topological_order();
+    println!("\nAfter topological sorting:");
+    for c in &crates_topo {
+        println!("    {}", c);
+    }
     Ok(())
 }
