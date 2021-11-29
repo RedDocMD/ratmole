@@ -1,5 +1,6 @@
 use colored::*;
 use ratmole::{error::Error, DepGraph};
+use std::fs::File;
 use std::{env, io::Write};
 
 fn main() -> Result<(), Error> {
@@ -26,6 +27,9 @@ fn main() -> Result<(), Error> {
     for c in &crates {
         println!("    {}", c);
     }
-    let _dag = depgraph.dag();
+    let dag = depgraph.dag();
+    let dot_path = &args[2];
+    let mut dot_file = File::create(dot_path)?;
+    dag.dump_graphviz(&mut dot_file)?;
     Ok(())
 }
