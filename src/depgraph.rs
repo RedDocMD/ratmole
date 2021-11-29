@@ -1,3 +1,5 @@
+pub mod dag;
+
 use std::{
     cell::RefCell,
     cmp::Ordering,
@@ -9,6 +11,7 @@ use std::{
 
 use crate::{
     cargo::{parse_cargo, DependentPackage},
+    depgraph::dag::{Dag, Node},
     error::Result,
     printer::TreePrintable,
 };
@@ -104,6 +107,26 @@ impl DepGraph {
 
     pub fn crates(&self) -> HashSet<&DependentPackage> {
         self.root.sub_crates()
+    }
+
+    pub fn dag(&self) -> Dag<'_> {
+        let mut nodes: Vec<_> = self
+            .crates()
+            .into_iter()
+            .map(|pkg| Node::free_node(pkg))
+            .collect();
+
+        let mut stack = vec![&self.root];
+        while !stack.is_empty() {
+            let crt = stack.pop().unwrap();
+            for dep in &crt.dependencies {
+                let dep_node = nodes.iter_mut().find(|n| n.pkg() == &dep.pkg).unwrap();
+                dep_node.add_dependent(&crt.pkg);
+                stack.push(dep);
+            }
+        }
+
+        Dag::new(nodes)
     }
 }
 

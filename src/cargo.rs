@@ -65,7 +65,7 @@ pub fn download_package_deps(pkg: &Package, config: &Config) -> Result<Vec<Packa
     download_dependencies(pkg.dependencies(), config)
 }
 
-#[derive(Clone, Eq)]
+#[derive(Debug, Clone, Eq)]
 pub struct DependentPackage {
     package: Package,
     enabled_features: Vec<FeatureValue>,

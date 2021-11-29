@@ -26,5 +26,6 @@ fn main() -> Result<(), Error> {
     for c in &crates {
         println!("    {}", c);
     }
+    let _dag = depgraph.dag();
     Ok(())
 }
