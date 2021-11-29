@@ -21,5 +21,10 @@ fn main() -> Result<(), Error> {
     let crate_path = &args[1];
     let depgraph = DepGraph::new(crate_path)?;
     println!("{}", depgraph);
+    let crates = depgraph.crates();
+    println!("\nIndividual crates:");
+    for c in &crates {
+        println!("    {}", c);
+    }
     Ok(())
 }
