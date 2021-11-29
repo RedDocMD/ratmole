@@ -39,6 +39,10 @@ impl<'pkg> Node<'pkg> {
     pub(super) fn add_dependent(&mut self, node: &'pkg DependentPackage) {
         self.dependents.push(node);
     }
+
+    pub(super) fn has_dependent(&self, node: &'pkg DependentPackage) -> bool {
+        self.dependents.contains(&node)
+    }
 }
 
 #[derive(Debug)]

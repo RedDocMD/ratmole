@@ -121,7 +121,9 @@ impl DepGraph {
             let crt = stack.pop().unwrap();
             for dep in &crt.dependencies {
                 let dep_node = nodes.iter_mut().find(|n| n.pkg() == &dep.pkg).unwrap();
-                dep_node.add_dependent(&crt.pkg);
+                if !dep_node.has_dependent(&crt.pkg) {
+                    dep_node.add_dependent(&crt.pkg);
+                }
                 stack.push(dep);
             }
         }
