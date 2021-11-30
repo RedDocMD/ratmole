@@ -45,6 +45,20 @@ impl Crate {
         }
         pkgs
     }
+
+    fn direct_dependencies(&self, pkg: &DependentPackage) -> Option<Vec<&DependentPackage>> {
+        if &self.pkg == pkg {
+            Some(self.dependencies.iter().map(|crt| &crt.pkg).collect())
+        } else {
+            for dep in &self.dependencies {
+                let ans = dep.direct_dependencies(pkg);
+                if ans.is_some() {
+                    return ans;
+                }
+            }
+            return None;
+        }
+    }
 }
 
 impl PartialEq for Crate {
@@ -129,6 +143,10 @@ impl DepGraph {
         }
 
         Dag::new(nodes)
+    }
+
+    pub fn direct_dependencies(&self, pkg: &DependentPackage) -> Option<Vec<&DependentPackage>> {
+        self.root.direct_dependencies(pkg)
     }
 }
 

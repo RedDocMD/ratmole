@@ -1,5 +1,5 @@
 use crate::{
-    cargo::{download_package_deps, parse_cargo},
+    cargo::{download_package_deps, parse_cargo, DependentPackage},
     depgraph::DepGraph,
     error::{Error, Result},
     item::{
@@ -225,6 +225,20 @@ fn simple_package_for_std(lib_path: PathBuf) -> SimplePackage {
 //     })
 // }
 
+pub struct CrateInfo {
+    pkg: DependentPackage,
+    structs: Vec<Struct>,
+    enums: Vec<Enum>,
+    consts: Vec<Const>,
+    type_aliases: Vec<TypeAlias>,
+    modules: Vec<ModuleItem>,
+    // use_paths: HashMap<UsePath, ResolvedPath>,
+}
+
+fn crate_info_internal(pkg: &DependentPackage, config: &Config) -> CrateInfo {
+    unimplemented!("implement crate_info_internal")
+}
+
 pub fn std_lib_info() -> Result<()> {
     let std_repo = StdRepo::new()?;
 
@@ -282,7 +296,7 @@ pub fn std_lib_info() -> Result<()> {
         for use_path in use_paths {
             if matches!(use_path.visibility(), Visibility::Public) {
                 let items = use_path_resolver.resolve(use_path, path);
-                let items_str: Vec<_> = items.iter().map(ResolvedUsePath::to_string).collect();
+                let items_str: Vec<_> = items.iter().map(ResolvedPath::to_string).collect();
                 println!("    {} => [{}]", use_path, items_str.join(", "));
             }
         }
@@ -355,11 +369,7 @@ struct UsePathResolver<'tree> {
 }
 
 impl<'tree> UsePathResolver<'tree> {
-    fn resolve(
-        &'tree self,
-        use_path: &UsePath,
-        containing_mod: &Path,
-    ) -> Vec<ResolvedUsePath<'tree>> {
+    fn resolve(&'tree self, use_path: &UsePath, containing_mod: &Path) -> Vec<ResolvedPath<'tree>> {
         if self.edition >= Edition::Edition2018 {
             let mut use_path = use_path.clone();
             if use_path.begins_with_empty() {
@@ -395,43 +405,43 @@ impl<'tree> UsePathResolver<'tree> {
         &'tree self,
         use_path: &UsePath,
         start_mod: &Path,
-    ) -> Vec<ResolvedUsePath<'tree>> {
+    ) -> Vec<ResolvedPath<'tree>> {
         let mut items = Vec::new();
         items.extend(
             self.structs_tree
                 .resolve_use_path(use_path, start_mod)
                 .into_iter()
-                .map(|s| ResolvedUsePath::Struct(s)),
+                .map(|s| ResolvedPath::Struct(s)),
         );
         items.extend(
             self.enums_tree
                 .resolve_use_path(use_path, start_mod)
                 .into_iter()
-                .map(|e| ResolvedUsePath::Enum(e)),
+                .map(|e| ResolvedPath::Enum(e)),
         );
         items.extend(
             self.consts_tree
                 .resolve_use_path(use_path, start_mod)
                 .into_iter()
-                .map(|c| ResolvedUsePath::Const(c)),
+                .map(|c| ResolvedPath::Const(c)),
         );
         items.extend(
             self.type_aliases_tree
                 .resolve_use_path(use_path, start_mod)
                 .into_iter()
-                .map(|ta| ResolvedUsePath::TypeAlias(ta)),
+                .map(|ta| ResolvedPath::TypeAlias(ta)),
         );
         items.extend(
             self.mod_tree
                 .resolve_use_path(use_path, start_mod)
                 .into_iter()
-                .map(|m| ResolvedUsePath::Module(m)),
+                .map(|m| ResolvedPath::Module(m)),
         );
         items
     }
 }
 
-enum ResolvedUsePath<'item> {
+enum ResolvedPath<'item> {
     Struct(&'item Struct),
     Module(&'item ModuleItem),
     Enum(&'item Enum),
@@ -439,14 +449,14 @@ enum ResolvedUsePath<'item> {
     TypeAlias(&'item TypeAlias),
 }
 
-impl Display for ResolvedUsePath<'_> {
+impl Display for ResolvedPath<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match *self {
-            ResolvedUsePath::Struct(s) => write!(f, "{}", s),
-            ResolvedUsePath::Module(m) => write!(f, "{}", m),
-            ResolvedUsePath::Enum(e) => write!(f, "{}", e),
-            ResolvedUsePath::Const(c) => write!(f, "{}", c),
-            ResolvedUsePath::TypeAlias(ta) => write!(f, "{}", ta),
+            ResolvedPath::Struct(s) => write!(f, "{}", s),
+            ResolvedPath::Module(m) => write!(f, "{}", m),
+            ResolvedPath::Enum(e) => write!(f, "{}", e),
+            ResolvedPath::Const(c) => write!(f, "{}", c),
+            ResolvedPath::TypeAlias(ta) => write!(f, "{}", ta),
         }
     }
 }
