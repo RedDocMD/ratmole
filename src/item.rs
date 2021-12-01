@@ -1,3 +1,5 @@
+use std::fmt::{self, Display, Formatter};
+
 pub mod consts;
 pub mod enums;
 pub mod extern_crate;
@@ -40,4 +42,24 @@ macro_rules! from_items {
             things
         }
     };
+}
+
+pub enum Item {
+    Struct(structs::Struct),
+    Enum(enums::Enum),
+    Const(consts::Const),
+    TypeAlias(types::TypeAlias),
+    Module(module::Module),
+}
+
+impl Display for Item {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Item::Struct(s) => write!(f, "{}", s),
+            Item::Module(m) => write!(f, "{}", m),
+            Item::Enum(e) => write!(f, "{}", e),
+            Item::Const(c) => write!(f, "{}", c),
+            Item::TypeAlias(ta) => write!(f, "{}", ta),
+        }
+    }
 }

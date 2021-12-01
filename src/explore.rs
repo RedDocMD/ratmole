@@ -10,9 +10,10 @@ use crate::{
         module::Module as ModuleItem,
         structs::{structs_from_items, Path, Struct, Visibility},
         types::{type_aliases_from_items, TypeAlias},
+        Item,
     },
     stdlib::StdRepo,
-    tree::{ItemTree, TreeItem},
+    tree::ItemTree,
     use_path::{use_paths_from_items, UsePath},
 };
 use cargo::{
@@ -29,7 +30,7 @@ use std::{
     io::Read,
     path::{Path as StdPath, PathBuf},
 };
-use syn::{parenthesized, parse::Parse, token, Item, LitStr, Token};
+use syn::{parenthesized, parse::Parse, token, LitStr, Token};
 
 fn things_from_file<T, F, R>(
     file_path: T,
@@ -83,6 +84,12 @@ impl SimplePackage {
 
     fn name(&self) -> &String {
         &self.name
+    }
+}
+
+impl From<&DependentPackage> for SimplePackage {
+    fn from(dpkg: &DependentPackage) -> Self {
+        Self::from_cargo(dpkg.package().clone())
     }
 }
 
@@ -227,72 +234,32 @@ fn simple_package_for_std(lib_path: PathBuf) -> SimplePackage {
 
 pub struct CrateInfo {
     pkg: DependentPackage,
-    structs: Vec<Struct>,
-    enums: Vec<Enum>,
-    consts: Vec<Const>,
-    type_aliases: Vec<TypeAlias>,
-    modules: Vec<ModuleItem>,
-    // use_paths: HashMap<UsePath, ResolvedPath>,
+    items: Vec<Item>,
+    re_exports: HashMap<UsePath, Vec<usize>>,
 }
 
-fn crate_info_internal(pkg: &DependentPackage, config: &Config) -> CrateInfo {
-    unimplemented!("implement crate_info_internal")
-}
+fn crate_info_internal(
+    pkg: &DependentPackage,
+    config: &Config,
+    dep_info: &[&CrateInfo],
+) -> Result<CrateInfo> {
+    let spkg = SimplePackage::from(pkg);
 
-pub fn std_lib_info() -> Result<()> {
-    let std_repo = StdRepo::new()?;
-
-    let config = Config::default()?;
-    let (manifest, manifest_path) = parse_cargo(std_repo.crate_path(), &config)?;
-    let std_pkg = Package::new(manifest, &manifest_path);
-    let pkgs = download_package_deps(&std_pkg, &config)?;
-
-    let dep_graph = DepGraph::new(std_repo.crate_path())?;
-    // println!("DEP-GRAPH:\n{}", dep_graph);
-
-    let std_pkg = SimplePackage::from_cargo(std_pkg);
-    let pkgs: Vec<_> = pkgs.into_iter().map(SimplePackage::from_cargo).collect();
-
-    fn things_in_package_rec<R, F>(
-        pkg: &SimplePackage,
-        sub_pkgs: &[SimplePackage],
-        gen: F,
-    ) -> Result<Vec<R>>
+    fn things_in_package_flat<R, F>(pkg: &SimplePackage, gen: F) -> Result<Vec<R>>
     where
         F: Fn(&[syn::Item], &mut Path) -> HashMap<Path, Vec<R>> + Sync + Send + Copy,
         R: Send,
     {
-        let things = mapped_things_in_package_rec(pkg, sub_pkgs, gen)?;
+        let things = things_in_package(pkg, true, gen)?;
         Ok(things.into_values().flatten().collect())
     }
 
-    fn mapped_things_in_package_rec<R, F>(
-        pkg: &SimplePackage,
-        sub_pkgs: &[SimplePackage],
-        gen: F,
-    ) -> Result<HashMap<Path, Vec<R>>>
-    where
-        F: Fn(&[syn::Item], &mut Path) -> HashMap<Path, Vec<R>> + Sync + Send + Copy,
-        R: Send,
-    {
-        let mut things = things_in_package(pkg, true, gen)?;
-        let mut acc = Vec::new();
-        sub_pkgs
-            .par_iter()
-            .map(|p| things_in_package(p, true, gen).unwrap())
-            .collect_into_vec(&mut acc);
-        for thing in acc {
-            things.extend(thing);
-        }
-        Ok(things)
-    }
-
-    let structs = things_in_package_rec(&std_pkg, &pkgs, structs_from_items)?;
-    let enums = things_in_package_rec(&std_pkg, &pkgs, enums_from_items)?;
-    let consts = things_in_package_rec(&std_pkg, &pkgs, consts_from_items)?;
-    let type_aliases = things_in_package_rec(&std_pkg, &pkgs, type_aliases_from_items)?;
-    let modules = things_in_package_rec(&std_pkg, &pkgs, modules_from_items)?;
-    let extern_crates = mapped_things_in_package_rec(&std_pkg, &pkgs, extern_crates_from_items)?;
+    let structs = things_in_package_flat(&spkg, structs_from_items)?;
+    let enums = things_in_package_flat(&spkg, enums_from_items)?;
+    let consts = things_in_package_flat(&spkg, consts_from_items)?;
+    let type_aliases = things_in_package_flat(&spkg, type_aliases_from_items)?;
+    let modules = things_in_package_flat(&spkg, modules_from_items)?;
+    let extern_crates = things_in_package(&spkg, true, extern_crates_from_items)?;
 
     let structs_tree = ItemTree::new(&structs);
     let enums_tree = ItemTree::new(&enums);
@@ -300,19 +267,16 @@ pub fn std_lib_info() -> Result<()> {
     let type_aliases_tree = ItemTree::new(&type_aliases);
     let module_tree = ItemTree::new(&modules);
 
-    // println!("EXTERN-CRATES");
-    // for (path, crates) in &extern_crates {
-    //     println!("{}", path.to_string().red());
-    //     for c in crates {
-    //         println!("    {}", c);
-    //     }
-    // }
-
-    // println!("STRUCT-TREE: \n{}", struct_tree);
-    // println!("ENUM-TREE: \n{}", enums_tree);
-    // println!("CONST-TREE: \n{}", consts_tree);
-    // println!("TYPE-ALIAS-TREE: \n{}", type_aliases_tree);
-    // println!("MODULE-TREE: \n{}", module_tree);
+    // This relies on the fact that all the items are stored as
+    // vectors and so the ordering will remain the same.
+    let items_ref: Vec<_> = structs
+        .iter()
+        .map(ResolvedPath::Struct)
+        .chain(enums.iter().map(ResolvedPath::Enum))
+        .chain(consts.iter().map(ResolvedPath::Const))
+        .chain(type_aliases.iter().map(ResolvedPath::TypeAlias))
+        .chain(modules.iter().map(ResolvedPath::Module))
+        .collect();
 
     let use_path_resolver = UsePathResolver {
         structs_tree,
@@ -321,23 +285,129 @@ pub fn std_lib_info() -> Result<()> {
         type_aliases_tree,
         mod_tree: module_tree,
         extern_crates,
-        edition: std_pkg.edition,
+        edition: spkg.edition,
     };
 
-    let std_use_paths = things_in_package(&std_pkg, true, use_paths_from_items)?;
-    for (path, use_paths) in &std_use_paths {
-        println!("{}", path.to_string().red());
+    let use_paths = things_in_package(&spkg, true, use_paths_from_items)?;
+    for (path, use_paths) in &use_paths {
         for use_path in use_paths {
             if matches!(use_path.visibility(), Visibility::Public) {
                 let items = use_path_resolver.resolve(use_path, path);
-                let items_str: Vec<_> = items.iter().map(ResolvedPath::to_string).collect();
-                println!("    {} => [{}]", use_path, items_str.join(", "));
             }
         }
     }
 
-    Ok(())
+    let items: Vec<_> = structs
+        .into_iter()
+        .map(Item::Struct)
+        .chain(enums.into_iter().map(Item::Enum))
+        .chain(consts.into_iter().map(Item::Const))
+        .chain(type_aliases.into_iter().map(Item::TypeAlias))
+        .chain(modules.into_iter().map(Item::Module))
+        .collect();
+
+    unimplemented!("implement crate_info_internal")
 }
+
+// pub fn std_lib_info() -> Result<()> {
+//     let std_repo = StdRepo::new()?;
+//
+//     let config = Config::default()?;
+//     let (manifest, manifest_path) = parse_cargo(std_repo.crate_path(), &config)?;
+//     let std_pkg = Package::new(manifest, &manifest_path);
+//     let pkgs = download_package_deps(&std_pkg, &config)?;
+//
+//     let dep_graph = DepGraph::new(std_repo.crate_path())?;
+//     // println!("DEP-GRAPH:\n{}", dep_graph);
+//
+//     let std_pkg = SimplePackage::from_cargo(std_pkg);
+//     let pkgs: Vec<_> = pkgs.into_iter().map(SimplePackage::from_cargo).collect();
+//
+//     fn things_in_package_rec<R, F>(
+//         pkg: &SimplePackage,
+//         sub_pkgs: &[SimplePackage],
+//         gen: F,
+//     ) -> Result<Vec<R>>
+//     where
+//         F: Fn(&[syn::Item], &mut Path) -> HashMap<Path, Vec<R>> + Sync + Send + Copy,
+//         R: Send,
+//     {
+//         let things = mapped_things_in_package_rec(pkg, sub_pkgs, gen)?;
+//         Ok(things.into_values().flatten().collect())
+//     }
+//
+//     fn mapped_things_in_package_rec<R, F>(
+//         pkg: &SimplePackage,
+//         sub_pkgs: &[SimplePackage],
+//         gen: F,
+//     ) -> Result<HashMap<Path, Vec<R>>>
+//     where
+//         F: Fn(&[syn::Item], &mut Path) -> HashMap<Path, Vec<R>> + Sync + Send + Copy,
+//         R: Send,
+//     {
+//         let mut things = things_in_package(pkg, true, gen)?;
+//         let mut acc = Vec::new();
+//         sub_pkgs
+//             .par_iter()
+//             .map(|p| things_in_package(p, true, gen).unwrap())
+//             .collect_into_vec(&mut acc);
+//         for thing in acc {
+//             things.extend(thing);
+//         }
+//         Ok(things)
+//     }
+//
+//     let structs = things_in_package_rec(&std_pkg, &pkgs, structs_from_items)?;
+//     let enums = things_in_package_rec(&std_pkg, &pkgs, enums_from_items)?;
+//     let consts = things_in_package_rec(&std_pkg, &pkgs, consts_from_items)?;
+//     let type_aliases = things_in_package_rec(&std_pkg, &pkgs, type_aliases_from_items)?;
+//     let modules = things_in_package_rec(&std_pkg, &pkgs, modules_from_items)?;
+//     let extern_crates = mapped_things_in_package_rec(&std_pkg, &pkgs, extern_crates_from_items)?;
+//
+//     let structs_tree = ItemTree::new(&structs);
+//     let enums_tree = ItemTree::new(&enums);
+//     let consts_tree = ItemTree::new(&consts);
+//     let type_aliases_tree = ItemTree::new(&type_aliases);
+//     let module_tree = ItemTree::new(&modules);
+//
+//     // println!("EXTERN-CRATES");
+//     // for (path, crates) in &extern_crates {
+//     //     println!("{}", path.to_string().red());
+//     //     for c in crates {
+//     //         println!("    {}", c);
+//     //     }
+//     // }
+//
+//     // println!("STRUCT-TREE: \n{}", struct_tree);
+//     // println!("ENUM-TREE: \n{}", enums_tree);
+//     // println!("CONST-TREE: \n{}", consts_tree);
+//     // println!("TYPE-ALIAS-TREE: \n{}", type_aliases_tree);
+//     // println!("MODULE-TREE: \n{}", module_tree);
+//
+//     let use_path_resolver = UsePathResolver {
+//         structs_tree,
+//         enums_tree,
+//         consts_tree,
+//         type_aliases_tree,
+//         mod_tree: module_tree,
+//         extern_crates,
+//         edition: std_pkg.edition,
+//     };
+//
+//     let std_use_paths = things_in_package(&std_pkg, true, use_paths_from_items)?;
+//     for (path, use_paths) in &std_use_paths {
+//         println!("{}", path.to_string().red());
+//         for use_path in use_paths {
+//             if matches!(use_path.visibility(), Visibility::Public) {
+//                 let items = use_path_resolver.resolve(use_path, path);
+//                 let items_str: Vec<_> = items.iter().map(ResolvedPath::to_string).collect();
+//                 println!("    {} => [{}]", use_path, items_str.join(", "));
+//             }
+//         }
+//     }
+//
+//     Ok(())
+// }
 
 fn extern_crate_rename(
     use_path: &mut UsePath,
@@ -361,10 +431,10 @@ fn extern_crate_rename(
 struct UsePathResolver<'tree> {
     structs_tree: ItemTree<'tree, Struct>,
     mod_tree: ItemTree<'tree, ModuleItem>,
-    extern_crates: HashMap<Path, Vec<ExternCrate>>,
     enums_tree: ItemTree<'tree, Enum>,
     consts_tree: ItemTree<'tree, Const>,
     type_aliases_tree: ItemTree<'tree, TypeAlias>,
+    extern_crates: HashMap<Path, Vec<ExternCrate>>,
     edition: Edition,
 }
 
@@ -751,7 +821,7 @@ fn empty_modules_from_file<T: AsRef<StdPath>>(path: T) -> Result<Option<Vec<ASTM
         Ok(ast) => {
             let mut emp_mods = Vec::new();
             for item in &ast.items {
-                if let Item::Mod(module) = item {
+                if let syn::Item::Mod(module) = item {
                     if module.content.is_none() {
                         let name = module.ident.to_string();
                         // FIXME: This is a hack!

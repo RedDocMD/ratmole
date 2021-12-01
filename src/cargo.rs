@@ -218,6 +218,16 @@ impl DependentPackage {
     pub fn version(&self) -> &Version {
         self.package.version()
     }
+
+    pub fn package(&self) -> &Package {
+        &self.package
+    }
+}
+
+impl From<DependentPackage> for Package {
+    fn from(val: DependentPackage) -> Self {
+        val.package
+    }
 }
 
 impl Display for DependentPackage {
