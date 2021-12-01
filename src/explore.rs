@@ -253,6 +253,40 @@ pub fn std_lib_info() -> Result<()> {
     let std_pkg = SimplePackage::from_cargo(std_pkg);
     let pkgs: Vec<_> = pkgs.into_iter().map(SimplePackage::from_cargo).collect();
 
+    fn things_in_package_rec<R, F>(
+        pkg: &SimplePackage,
+        sub_pkgs: &[SimplePackage],
+        gen: F,
+    ) -> Result<Vec<R>>
+    where
+        F: Fn(&[syn::Item], &mut Path) -> HashMap<Path, Vec<R>> + Sync + Send + Copy,
+        R: Send,
+    {
+        let things = mapped_things_in_package_rec(pkg, sub_pkgs, gen)?;
+        Ok(things.into_values().flatten().collect())
+    }
+
+    fn mapped_things_in_package_rec<R, F>(
+        pkg: &SimplePackage,
+        sub_pkgs: &[SimplePackage],
+        gen: F,
+    ) -> Result<HashMap<Path, Vec<R>>>
+    where
+        F: Fn(&[syn::Item], &mut Path) -> HashMap<Path, Vec<R>> + Sync + Send + Copy,
+        R: Send,
+    {
+        let mut things = things_in_package(pkg, true, gen)?;
+        let mut acc = Vec::new();
+        sub_pkgs
+            .par_iter()
+            .map(|p| things_in_package(p, true, gen).unwrap())
+            .collect_into_vec(&mut acc);
+        for thing in acc {
+            things.extend(thing);
+        }
+        Ok(things)
+    }
+
     let structs = things_in_package_rec(&std_pkg, &pkgs, structs_from_items)?;
     let enums = things_in_package_rec(&std_pkg, &pkgs, enums_from_items)?;
     let consts = things_in_package_rec(&std_pkg, &pkgs, consts_from_items)?;
@@ -303,40 +337,6 @@ pub fn std_lib_info() -> Result<()> {
     }
 
     Ok(())
-}
-
-fn things_in_package_rec<R, F>(
-    pkg: &SimplePackage,
-    sub_pkgs: &[SimplePackage],
-    gen: F,
-) -> Result<Vec<R>>
-where
-    F: Fn(&[syn::Item], &mut Path) -> HashMap<Path, Vec<R>> + Sync + Send + Copy,
-    R: Send,
-{
-    let things = mapped_things_in_package_rec(pkg, sub_pkgs, gen)?;
-    Ok(things.into_values().flatten().collect())
-}
-
-fn mapped_things_in_package_rec<R, F>(
-    pkg: &SimplePackage,
-    sub_pkgs: &[SimplePackage],
-    gen: F,
-) -> Result<HashMap<Path, Vec<R>>>
-where
-    F: Fn(&[syn::Item], &mut Path) -> HashMap<Path, Vec<R>> + Sync + Send + Copy,
-    R: Send,
-{
-    let mut things = things_in_package(pkg, true, gen)?;
-    let mut acc = Vec::new();
-    sub_pkgs
-        .par_iter()
-        .map(|p| things_in_package(p, true, gen).unwrap())
-        .collect_into_vec(&mut acc);
-    for thing in acc {
-        things.extend(thing);
-    }
-    Ok(things)
 }
 
 fn extern_crate_rename(
