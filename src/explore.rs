@@ -3,11 +3,13 @@ use crate::{
     depgraph::DepGraph,
     error::{Error, Result},
     item::{
+        self,
         consts::{consts_from_items, Const},
         enums::{enums_from_items, Enum},
         extern_crate::{extern_crates_from_items, ExternCrate},
         module::modules_from_items,
         module::Module as ModuleItem,
+        reexport::ReExport,
         structs::{structs_from_items, Path, Struct, Visibility},
         types::{type_aliases_from_items, TypeAlias},
         Item,
@@ -233,16 +235,11 @@ fn simple_package_for_std(lib_path: PathBuf) -> SimplePackage {
 // }
 
 pub struct CrateInfo {
-    pkg: DependentPackage,
+    pkgs: Vec<DependentPackage>,
     items: Vec<Item>,
-    re_exports: HashMap<UsePath, Vec<usize>>,
 }
 
-fn crate_info_internal(
-    pkg: &DependentPackage,
-    config: &Config,
-    dep_info: &[&CrateInfo],
-) -> Result<CrateInfo> {
+fn crate_info_internal(pkg: &DependentPackage, prev_info: &mut CrateInfo) -> Result<()> {
     let spkg = SimplePackage::from(pkg);
 
     fn things_in_package_flat<R, F>(pkg: &SimplePackage, gen: F) -> Result<Vec<R>>
@@ -267,46 +264,45 @@ fn crate_info_internal(
     let type_aliases_tree = ItemTree::new(&type_aliases);
     let module_tree = ItemTree::new(&modules);
 
-    // This relies on the fact that all the items are stored as
-    // vectors and so the ordering will remain the same.
-    let items_ref: Vec<_> = structs
-        .iter()
-        .map(ResolvedPath::Struct)
-        .chain(enums.iter().map(ResolvedPath::Enum))
-        .chain(consts.iter().map(ResolvedPath::Const))
-        .chain(type_aliases.iter().map(ResolvedPath::TypeAlias))
-        .chain(modules.iter().map(ResolvedPath::Module))
-        .collect();
-
     let use_path_resolver = UsePathResolver {
         structs_tree,
         enums_tree,
         consts_tree,
         type_aliases_tree,
-        mod_tree: module_tree,
+        module_tree,
         extern_crates,
         edition: spkg.edition,
     };
 
     let use_paths = things_in_package(&spkg, true, use_paths_from_items)?;
+    let mut re_exports = Vec::new();
     for (path, use_paths) in &use_paths {
         for use_path in use_paths {
             if matches!(use_path.visibility(), Visibility::Public) {
                 let items = use_path_resolver.resolve(use_path, path);
+                re_exports.push(ReExport::new(
+                    path.clone(),
+                    use_path.clone(),
+                    items.into_iter().map(Item::from).collect(),
+                ))
             }
         }
     }
 
-    let items: Vec<_> = structs
-        .into_iter()
-        .map(Item::Struct)
-        .chain(enums.into_iter().map(Item::Enum))
-        .chain(consts.into_iter().map(Item::Const))
-        .chain(type_aliases.into_iter().map(Item::TypeAlias))
-        .chain(modules.into_iter().map(Item::Module))
-        .collect();
+    prev_info.items.extend(
+        structs
+            .into_iter()
+            .map(Item::Struct)
+            .chain(enums.into_iter().map(Item::Enum))
+            .chain(consts.into_iter().map(Item::Const))
+            .chain(type_aliases.into_iter().map(Item::TypeAlias))
+            .chain(modules.into_iter().map(Item::Module))
+            .chain(re_exports.into_iter().map(Item::ReExport)),
+    );
 
-    unimplemented!("implement crate_info_internal")
+    prev_info.pkgs.push(pkg.clone());
+
+    Ok(())
 }
 
 // pub fn std_lib_info() -> Result<()> {
@@ -430,7 +426,7 @@ fn extern_crate_rename(
 
 struct UsePathResolver<'tree> {
     structs_tree: ItemTree<'tree, Struct>,
-    mod_tree: ItemTree<'tree, ModuleItem>,
+    module_tree: ItemTree<'tree, ModuleItem>,
     enums_tree: ItemTree<'tree, Enum>,
     consts_tree: ItemTree<'tree, Const>,
     type_aliases_tree: ItemTree<'tree, TypeAlias>,
@@ -439,6 +435,19 @@ struct UsePathResolver<'tree> {
 }
 
 impl<'tree> UsePathResolver<'tree> {
+    fn add_items(&'tree mut self, items: &'tree [Item]) {
+        for item in items {
+            match item {
+                Item::Struct(s) => self.structs_tree.add_item(s),
+                Item::Enum(e) => self.enums_tree.add_item(e),
+                Item::Const(c) => self.consts_tree.add_item(c),
+                Item::TypeAlias(ta) => self.type_aliases_tree.add_item(ta),
+                Item::Module(m) => self.module_tree.add_item(m),
+                Item::ReExport(_) => todo!(),
+            }
+        }
+    }
+
     fn resolve(&'tree self, use_path: &UsePath, containing_mod: &Path) -> Vec<ResolvedPath<'tree>> {
         if self.edition >= Edition::Edition2018 {
             let mut use_path = use_path.clone();
@@ -502,7 +511,7 @@ impl<'tree> UsePathResolver<'tree> {
                 .map(|ta| ResolvedPath::TypeAlias(ta)),
         );
         items.extend(
-            self.mod_tree
+            self.module_tree
                 .resolve_use_path(use_path, start_mod)
                 .into_iter()
                 .map(|m| ResolvedPath::Module(m)),
@@ -527,6 +536,18 @@ impl Display for ResolvedPath<'_> {
             ResolvedPath::Enum(e) => write!(f, "{}", e),
             ResolvedPath::Const(c) => write!(f, "{}", c),
             ResolvedPath::TypeAlias(ta) => write!(f, "{}", ta),
+        }
+    }
+}
+
+impl From<ResolvedPath<'_>> for Item {
+    fn from(rp: ResolvedPath<'_>) -> Self {
+        match rp {
+            ResolvedPath::Struct(s) => Item::Struct(s.clone()),
+            ResolvedPath::Module(m) => Item::Module(m.clone()),
+            ResolvedPath::Enum(e) => Item::Enum(e.clone()),
+            ResolvedPath::Const(c) => Item::Const(c.clone()),
+            ResolvedPath::TypeAlias(ta) => Item::TypeAlias(ta.clone()),
         }
     }
 }

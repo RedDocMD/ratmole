@@ -4,6 +4,7 @@ pub mod consts;
 pub mod enums;
 pub mod extern_crate;
 pub mod module;
+pub mod reexport;
 pub mod structs;
 pub mod types;
 
@@ -50,6 +51,7 @@ pub enum Item {
     Const(consts::Const),
     TypeAlias(types::TypeAlias),
     Module(module::Module),
+    ReExport(reexport::ReExport),
 }
 
 impl Display for Item {
@@ -60,6 +62,7 @@ impl Display for Item {
             Item::Enum(e) => write!(f, "{}", e),
             Item::Const(c) => write!(f, "{}", c),
             Item::TypeAlias(ta) => write!(f, "{}", ta),
+            Item::ReExport(r) => write!(f, "{}", r),
         }
     }
 }

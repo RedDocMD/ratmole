@@ -8,6 +8,7 @@ use colored::*;
 
 use super::structs::Path;
 
+#[derive(Clone)]
 pub struct Module {
     path: Path,
     name: String,

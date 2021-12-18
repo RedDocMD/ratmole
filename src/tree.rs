@@ -76,7 +76,7 @@ where
         tree
     }
 
-    fn add_item(&mut self, t: &'t T) {
+    pub(crate) fn add_item(&mut self, t: &'t T) {
         let comps: Vec<&str> = t
             .module()
             .components()
