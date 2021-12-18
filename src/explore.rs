@@ -239,6 +239,34 @@ pub struct CrateInfo {
     items: Vec<Item>,
 }
 
+impl CrateInfo {
+    fn empty() -> Self {
+        Self {
+            pkgs: Vec::new(),
+            items: Vec::new(),
+        }
+    }
+
+    pub fn new<P: AsRef<StdPath>>(crate_root: P) -> Result<Self> {
+        let dep_graph = DepGraph::new(crate_root)?;
+        let dag = dep_graph.dag();
+        let sorted_crates = dag.topological_order();
+        let mut crate_info = CrateInfo::empty();
+        for dep_pkg in sorted_crates {
+            crate_info_internal(dep_pkg, &mut crate_info)?;
+        }
+        Ok(crate_info)
+    }
+
+    pub fn items(&self) -> &[Item] {
+        &self.items
+    }
+
+    pub fn pkgs(&self) -> &[DependentPackage] {
+        &self.pkgs
+    }
+}
+
 fn crate_info_internal(pkg: &DependentPackage, prev_info: &mut CrateInfo) -> Result<()> {
     let spkg = SimplePackage::from(pkg);
 

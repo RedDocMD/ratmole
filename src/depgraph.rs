@@ -56,7 +56,7 @@ impl Crate {
                     return ans;
                 }
             }
-            return None;
+            None
         }
     }
 }
@@ -124,11 +124,7 @@ impl DepGraph {
     }
 
     pub fn dag(&self) -> Dag<'_> {
-        let mut nodes: Vec<_> = self
-            .crates()
-            .into_iter()
-            .map(|pkg| Node::free_node(pkg))
-            .collect();
+        let mut nodes: Vec<_> = self.crates().into_iter().map(Node::free_node).collect();
 
         let mut stack = vec![&self.root];
         while !stack.is_empty() {
