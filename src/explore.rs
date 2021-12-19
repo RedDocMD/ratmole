@@ -477,8 +477,8 @@ impl<'tree> UsePathResolver<'tree> {
     }
 
     fn resolve(&'tree self, use_path: &UsePath, containing_mod: &Path) -> Vec<ResolvedPath<'tree>> {
+        let mut use_path = use_path.clone();
         if self.edition >= Edition::Edition2018 {
-            let mut use_path = use_path.clone();
             if use_path.begins_with_empty() {
                 // Absolute path
                 use_path.remove_first();
@@ -504,7 +504,21 @@ impl<'tree> UsePathResolver<'tree> {
                 self.resolve_internal(&use_path, &start_mod)
             }
         } else {
-            todo!("Handle 2015 edition path resolution")
+            // For 2015, paths are always relative to the crate root.
+            // A leading empty doesn't make a difference
+            if use_path.begins_with_empty() {
+                use_path.remove_first();
+            }
+            let start_mod = Path::new(Vec::new());
+            let extern_renamed = extern_crate_rename(
+                &mut use_path,
+                &containing_mod.first_as_path(),
+                &self.extern_crates,
+            );
+            if !extern_renamed {
+                extern_crate_rename(&mut use_path, containing_mod, &self.extern_crates);
+            }
+            self.resolve_internal(&use_path, &start_mod)
         }
     }
 
