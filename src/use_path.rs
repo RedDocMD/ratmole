@@ -1,3 +1,4 @@
+use colored::*;
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::{
@@ -86,11 +87,8 @@ impl UsePath {
     }
 
     pub fn begins_with(&self, s: &str) -> bool {
-        if let Some(first) = self.components().first() {
-            match first {
-                UsePathComponent::Name(name) => s == name,
-                _ => false,
-            }
+        if let Some(UsePathComponent::Name(name)) = self.components().first() {
+            s == name
         } else {
             false
         }
@@ -119,7 +117,13 @@ impl UsePath {
 impl Display for UsePath {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let comps: Vec<String> = self.path.iter().map(UsePathComponent::to_string).collect();
-        write!(f, "{}{}", self.vis, comps.join("::"))
+        write!(
+            f,
+            "{}{} {}",
+            self.vis.to_string().magenta(),
+            "use".green(),
+            comps.join("::")
+        )
     }
 }
 
@@ -133,7 +137,7 @@ impl From<Vec<&str>> for UsePath {
             .map(|item| {
                 if item == "*" {
                     UsePathComponent::Glob
-                } else if item == "" {
+                } else if item.is_empty() {
                     UsePathComponent::Empty
                 } else if let Some(captures) = RENAME_REG.captures(item) {
                     let from = String::from(&captures[1]);
@@ -153,7 +157,7 @@ impl From<Vec<&str>> for UsePath {
 
 fn use_paths_from_use_tree(tree: &syn::UseTree, vis: &Visibility) -> Vec<UsePath> {
     fn name_to_component(s: String) -> UsePathComponent {
-        if s == "" {
+        if s.is_empty() {
             UsePathComponent::Empty
         } else {
             UsePathComponent::Name(s)
